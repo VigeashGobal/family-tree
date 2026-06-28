@@ -1,4 +1,4 @@
-import { FamilyTreeApp } from "@/components/FamilyTreeApp";
+import { FamilyTreeWithConnection } from "@/components/FamilyTreeWithConnection";
 import { SetupScreen } from "@/components/SetupScreen";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +8,7 @@ export default function Home() {
 
   return (
     <div className="flex min-h-full flex-col">
-      {isConfigured ? <FamilyTreeApp /> : <SetupScreen />}
+      {isConfigured ? <FamilyTreeWithConnection /> : <SetupScreen />}
     </div>
   );
 }
