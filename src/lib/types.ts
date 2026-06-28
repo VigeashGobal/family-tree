@@ -1,0 +1,37 @@
+import { Id } from "../../convex/_generated/dataModel";
+
+export type RelationshipType = "parent" | "child" | "spouse" | "sibling";
+
+export type Member = {
+  _id: Id<"members">;
+  name: string;
+  pictureUrl: string | null;
+  job?: string;
+  birthday?: string;
+  email?: string;
+};
+
+export type Relationship = {
+  _id: Id<"relationships">;
+  fromMemberId: Id<"members">;
+  toMemberId: Id<"members">;
+  type: RelationshipType;
+};
+
+export type TreeNode = Member & {
+  x: number;
+  y: number;
+};
+
+export type TreeEdge = {
+  from: Id<"members">;
+  to: Id<"members">;
+  type: RelationshipType;
+};
+
+export const RELATIONSHIP_LABELS: Record<RelationshipType, string> = {
+  parent: "Parent of",
+  child: "Child of",
+  spouse: "Spouse of",
+  sibling: "Sibling of",
+};

@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+:root {
+  --cream: #f7f3ee;
+  --ivory: #faf8f5;
+  --black: #0a0a0a;
+  --charcoal: #1a1a1a;
+  --gold: #b8976a;
+  --gold-light: #d4bc94;
+  --muted: #8a8580;
+  --line: #e8e2d9;
+}
+
+@theme inline {
+  --color-cream: var(--cream);
+  --color-ivory: var(--ivory);
+  --color-black: var(--black);
+  --color-charcoal: var(--charcoal);
+  --color-gold: var(--gold);
+  --color-gold-light: var(--gold-light);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --font-serif: var(--font-serif);
+  --font-sans: var(--font-sans);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--ivory);
+  color: var(--black);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-weight: 300;
+}
+
+.font-serif {
+  font-family: var(--font-serif), Georgia, serif;
+}
+
+::selection {
+  background: var(--gold-light);
+  color: var(--black);
+}
+
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+}
+
+.field-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--ivory);
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  color: var(--charcoal);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.field-input:focus {
+  border-color: var(--gold);
+}
+
+.field-input::placeholder {
+  color: var(--muted);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s ease-out forwards;
+}
