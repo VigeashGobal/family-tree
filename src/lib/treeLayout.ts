@@ -1,46 +1,10 @@
 import { Id } from "../../convex/_generated/dataModel";
-import { Member, Relationship, RelationshipType, TreeEdge, TreeNode } from "./types";
+import { Member, Relationship, TreeEdge, TreeNode } from "./types";
 
 const NODE_WIDTH = 180;
 const NODE_HEIGHT = 220;
 const H_GAP = 48;
 const V_GAP = 100;
-
-function getParents(
-  memberId: Id<"members">,
-  relationships: Relationship[],
-): Id<"members">[] {
-  const parents: Id<"members">[] = [];
-
-  for (const rel of relationships) {
-    if (rel.type === "child" && rel.fromMemberId === memberId) {
-      parents.push(rel.toMemberId);
-    }
-    if (rel.type === "parent" && rel.toMemberId === memberId) {
-      parents.push(rel.fromMemberId);
-    }
-  }
-
-  return parents;
-}
-
-function getChildren(
-  memberId: Id<"members">,
-  relationships: Relationship[],
-): Id<"members">[] {
-  const children: Id<"members">[] = [];
-
-  for (const rel of relationships) {
-    if (rel.type === "parent" && rel.fromMemberId === memberId) {
-      children.push(rel.toMemberId);
-    }
-    if (rel.type === "child" && rel.toMemberId === memberId) {
-      children.push(rel.fromMemberId);
-    }
-  }
-
-  return children;
-}
 
 function getSpouses(
   memberId: Id<"members">,
@@ -63,65 +27,67 @@ function parseBirthday(birthday?: string): number {
   return Number.isNaN(time) ? 0 : time;
 }
 
+function getParentChildPairs(
+  relationships: Relationship[],
+): { child: Id<"members">; parent: Id<"members"> }[] {
+  const pairs: { child: Id<"members">; parent: Id<"members"> }[] = [];
+
+  for (const rel of relationships) {
+    if (rel.type === "child") {
+      pairs.push({ child: rel.fromMemberId, parent: rel.toMemberId });
+    } else if (rel.type === "parent") {
+      pairs.push({ child: rel.toMemberId, parent: rel.fromMemberId });
+    }
+  }
+
+  return pairs;
+}
+
 function assignGenerations(
   members: Member[],
   relationships: Relationship[],
 ): Map<Id<"members">, number> {
   const generations = new Map<Id<"members">, number>();
-  const memberIds = members.map((m) => m._id);
-  const memberMap = new Map(members.map((m) => [m._id, m]));
 
-  const leaves = memberIds.filter(
-    (id) => getChildren(id, relationships).length === 0,
-  );
+  for (const member of members) {
+    generations.set(member._id, 0);
+  }
 
-  const startIds =
-    leaves.length > 0
-      ? [...leaves].sort(
-          (a, b) =>
-            parseBirthday(memberMap.get(b)?.birthday) -
-            parseBirthday(memberMap.get(a)?.birthday),
-        )
-      : [...memberIds].sort(
-          (a, b) =>
-            parseBirthday(memberMap.get(b)?.birthday) -
-            parseBirthday(memberMap.get(a)?.birthday),
-        );
+  const parentChildPairs = getParentChildPairs(relationships);
+  const maxIterations = members.length + 5;
+  let changed = true;
+  let iterations = 0;
 
-  const queue = startIds.map((id) => ({ id, gen: 0 }));
+  while (changed && iterations < maxIterations) {
+    changed = false;
+    iterations += 1;
 
-  while (queue.length > 0) {
-    const { id, gen } = queue.shift()!;
-    const existing = generations.get(id);
+    for (const { child, parent } of parentChildPairs) {
+      const childGen = generations.get(child) ?? 0;
+      const parentGen = generations.get(parent) ?? 0;
+      const nextParentGen = childGen + 1;
 
-    if (existing !== undefined && gen <= existing) continue;
-    generations.set(id, gen);
-
-    for (const parentId of getParents(id, relationships)) {
-      queue.push({ id: parentId, gen: gen + 1 });
+      if (nextParentGen > parentGen) {
+        generations.set(parent, nextParentGen);
+        changed = true;
+      }
     }
 
     for (const rel of relationships) {
-      if (rel.type === "spouse") {
-        const spouseId =
-          rel.fromMemberId === id ? rel.toMemberId : rel.fromMemberId;
-        if (spouseId !== id) {
-          queue.push({ id: spouseId, gen });
-        }
-      }
-      if (rel.type === "sibling") {
-        const siblingId =
-          rel.fromMemberId === id ? rel.toMemberId : rel.fromMemberId;
-        if (siblingId !== id) {
-          queue.push({ id: siblingId, gen });
-        }
-      }
-    }
-  }
+      if (rel.type !== "spouse" && rel.type !== "sibling") continue;
 
-  for (const id of memberIds) {
-    if (!generations.has(id)) {
-      generations.set(id, 0);
+      const a = rel.fromMemberId;
+      const b = rel.toMemberId;
+      const aligned = Math.max(generations.get(a) ?? 0, generations.get(b) ?? 0);
+
+      if (aligned > (generations.get(a) ?? 0)) {
+        generations.set(a, aligned);
+        changed = true;
+      }
+      if (aligned > (generations.get(b) ?? 0)) {
+        generations.set(b, aligned);
+        changed = true;
+      }
     }
   }
 
@@ -137,7 +103,6 @@ export function layoutTree(
   }
 
   const generations = assignGenerations(members, relationships);
-  const memberMap = new Map(members.map((m) => [m._id, m]));
   const byGeneration = new Map<number, Member[]>();
 
   for (const member of members) {
