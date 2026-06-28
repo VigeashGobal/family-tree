@@ -1,30 +1,19 @@
 "use client";
 
 import { useMutation } from "convex/react";
-import type { GenericId } from "convex/values";
 import { Upload, X } from "lucide-react";
 import Image from "next/image";
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Id } from "../../convex/_generated/dataModel";
 import { api } from "../../convex/_generated/api";
-import { Member } from "@/lib/types";
-import {
-  describeLinkPreviewWithMembers,
-  SIMPLE_RELATIONSHIP_OPTIONS,
-  SimpleRelationshipRole,
-} from "@/lib/relationships";
+import type { GenericId } from "convex/values";
 
 type AddMemberModalProps = {
-  members: Member[];
-  relationships: { fromMemberId: Id<"members">; toMemberId: Id<"members">; type: string }[];
   onClose: () => void;
+  onCreated?: (id: Id<"members">) => void;
 };
 
-export function AddMemberModal({
-  members,
-  relationships,
-  onClose,
-}: AddMemberModalProps) {
+export function AddMemberModal({ onClose, onCreated }: AddMemberModalProps) {
   const createMember = useMutation(api.members.create);
   const generateUploadUrl = useMutation(api.members.generateUploadUrl);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -33,38 +22,15 @@ export function AddMemberModal({
   const [job, setJob] = useState("");
   const [birthday, setBirthday] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<SimpleRelationshipRole>("child");
-  const [relatedMemberId, setRelatedMemberId] = useState("");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [pictureFile, setPictureFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isFirstMember = members.length === 0;
-
-  const relatedMember = members.find((m) => m._id === relatedMemberId);
-  const linkPreview = useMemo(
-    () =>
-      describeLinkPreviewWithMembers(
-        role,
-        relatedMember,
-        members,
-        relationships as Parameters<typeof describeLinkPreviewWithMembers>[3],
-      ),
-    [role, relatedMember, members, relationships],
-  );
-
-  const selectedOption = SIMPLE_RELATIONSHIP_OPTIONS.find((o) => o.value === role);
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) {
       setError("Name is required");
-      return;
-    }
-
-    if (!isFirstMember && !relatedMemberId) {
-      setError("Please select who they're related to");
       return;
     }
 
@@ -85,22 +51,15 @@ export function AddMemberModal({
         pictureId = storageId;
       }
 
-      await createMember({
+      const memberId = await createMember({
         name: name.trim(),
         job: job.trim() || undefined,
         birthday: birthday || undefined,
         email: email.trim() || undefined,
         pictureId,
-        links: relatedMemberId
-          ? [
-              {
-                relatedMemberId: relatedMemberId as Id<"members">,
-                relationship: role,
-              },
-            ]
-          : [],
       });
 
+      onCreated?.(memberId);
       onClose();
     } catch {
       setError("Something went wrong. Please try again.");
@@ -126,9 +85,14 @@ export function AddMemberModal({
 
       <div className="animate-fade-in relative w-full max-w-lg border border-line bg-ivory shadow-2xl">
         <div className="flex items-center justify-between border-b border-line px-6 py-5">
-          <h2 className="font-serif text-xl tracking-[0.15em] uppercase">
-            {isFirstMember ? "First Member" : "New Member"}
-          </h2>
+          <div>
+            <h2 className="font-serif text-xl tracking-[0.15em] uppercase">
+              New Person
+            </h2>
+            <p className="mt-1 text-xs text-muted">
+              Add their details — connect them on the canvas after
+            </p>
+          </div>
           <button
             onClick={onClose}
             className="text-muted transition-colors hover:text-black"
@@ -176,6 +140,7 @@ export function AddMemberModal({
               onChange={(e) => setName(e.target.value)}
               className="field-input"
               placeholder="e.g. Gabrielle Chanel"
+              autoFocus
             />
           </Field>
 
@@ -184,7 +149,7 @@ export function AddMemberModal({
               value={job}
               onChange={(e) => setJob(e.target.value)}
               className="field-input"
-              placeholder="e.g. Fashion Designer"
+              placeholder="Optional"
             />
           </Field>
 
@@ -204,62 +169,10 @@ export function AddMemberModal({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="field-input"
-                placeholder="email@example.com"
+                placeholder="Optional"
               />
             </Field>
           </div>
-
-          {!isFirstMember && (
-            <div className="mb-4 border border-line bg-cream/30 p-4">
-              <p className="mb-3 text-[10px] uppercase tracking-[0.25em] text-muted">
-                Family connection<span className="text-gold"> *</span>
-              </p>
-
-              <div className="mb-3 grid grid-cols-2 gap-2">
-                {SIMPLE_RELATIONSHIP_OPTIONS.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setRole(option.value)}
-                    className={`border px-3 py-2.5 text-left transition-colors ${
-                      role === option.value
-                        ? "border-gold bg-ivory"
-                        : "border-line bg-ivory/50 hover:border-gold/40"
-                    }`}
-                  >
-                    <span className="block text-[11px] uppercase tracking-[0.12em] text-charcoal">
-                      {option.label}
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              {selectedOption && (
-                <p className="mb-3 text-xs leading-relaxed text-muted">
-                  {selectedOption.description}
-                </p>
-              )}
-
-              <select
-                value={relatedMemberId}
-                onChange={(e) => setRelatedMemberId(e.target.value)}
-                className="field-input"
-              >
-                <option value="">Select a family member</option>
-                {members.map((m) => (
-                  <option key={m._id} value={m._id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-
-              {linkPreview && (
-                <p className="mt-3 border border-gold/30 bg-ivory px-3 py-2 text-[11px] uppercase tracking-[0.12em] text-gold">
-                  {linkPreview}
-                </p>
-              )}
-            </div>
-          )}
 
           {error && (
             <p className="mt-4 text-center text-sm text-red-600">{error}</p>
@@ -270,7 +183,7 @@ export function AddMemberModal({
             disabled={submitting}
             className="mt-6 w-full border border-black bg-black py-3.5 text-[11px] uppercase tracking-[0.2em] text-ivory transition-all hover:bg-charcoal disabled:opacity-50"
           >
-            {submitting ? "Saving..." : "Add to Tree"}
+            {submitting ? "Creating..." : "Create Person"}
           </button>
         </form>
       </div>

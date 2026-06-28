@@ -3,14 +3,9 @@
 import { useMutation } from "convex/react";
 import { Id } from "../../convex/_generated/dataModel";
 import { api } from "../../convex/_generated/api";
-import {
-  buildDisplayRelationships,
-  describeLinkPreviewWithMembers,
-  SIMPLE_RELATIONSHIP_OPTIONS,
-  SimpleRelationshipRole,
-} from "@/lib/relationships";
+import { buildDisplayRelationships } from "@/lib/relationships";
 import { Member, Relationship, RELATIONSHIP_LABELS } from "@/lib/types";
-import { Briefcase, Calendar, Mail, Pencil, Plus, Upload, User } from "lucide-react";
+import { Briefcase, Calendar, Link2, Mail, Pencil, Upload, User } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import type { GenericId } from "convex/values";
@@ -20,14 +15,24 @@ type MemberNodeProps = {
   member: Member & { x: number; y: number };
   selected: boolean;
   highlighted?: boolean;
+  connectSourceId?: Id<"members"> | null;
+  isConnectTarget?: boolean;
+  isConnectingFrom?: boolean;
   onSelect: (id: Id<"members">) => void;
+  onConnectionStart: (id: Id<"members">, e: React.PointerEvent) => void;
+  onConnectHandleTap: (id: Id<"members">) => void;
 };
 
 export function MemberNode({
   member,
   selected,
   highlighted,
+  connectSourceId,
+  isConnectTarget,
+  isConnectingFrom,
   onSelect,
+  onConnectionStart,
+  onConnectHandleTap,
 }: MemberNodeProps) {
   const initials = member.name
     .split(" ")
@@ -36,26 +41,38 @@ export function MemberNode({
     .slice(0, 2)
     .toUpperCase();
 
+  const canAcceptConnection =
+    Boolean(connectSourceId) && connectSourceId !== member._id;
+
   return (
-    <button
-      onClick={() => onSelect(member._id)}
-      className={`group absolute w-[148px] text-left transition-all duration-300 sm:w-[168px] md:w-[180px] ${
-        selected ? "z-20" : highlighted ? "z-20" : "z-10"
+    <div
+      data-member-id={member._id}
+      className={`group absolute w-[148px] sm:w-[168px] md:w-[180px] ${
+        selected ? "z-20" : highlighted || isConnectTarget ? "z-20" : "z-10"
       }`}
       style={{
         left: member.x - NODE_WIDTH / 2,
         top: member.y,
       }}
     >
-      <div
-        className={`flex flex-col items-center border bg-ivory p-3 transition-all duration-300 md:p-4 ${
-          selected
-            ? "border-gold shadow-[0_8px_30px_rgba(184,151,106,0.2)]"
-            : highlighted
-              ? "search-highlight border-gold shadow-[0_8px_30px_rgba(184,151,106,0.35)]"
-              : "border-line hover:border-gold/50 hover:shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+      <button
+        type="button"
+        onClick={() => onSelect(member._id)}
+        className={`w-full text-left transition-all duration-300 ${
+          canAcceptConnection ? "ring-2 ring-gold/40 ring-offset-2 ring-offset-ivory" : ""
         }`}
       >
+        <div
+          className={`flex flex-col items-center border bg-ivory p-3 transition-all duration-300 md:p-4 ${
+            selected
+              ? "border-gold shadow-[0_8px_30px_rgba(184,151,106,0.2)]"
+              : highlighted
+                ? "search-highlight border-gold shadow-[0_8px_30px_rgba(184,151,106,0.35)]"
+                : isConnectTarget
+                  ? "border-gold bg-cream/60 shadow-[0_8px_30px_rgba(184,151,106,0.25)]"
+                  : "border-line hover:border-gold/50 hover:shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+          }`}
+        >
         <div className="relative mb-2 h-16 w-16 overflow-hidden rounded-full border border-line md:mb-3 md:h-20 md:w-20">
           {member.pictureUrl ? (
             <Image
@@ -81,8 +98,30 @@ export function MemberNode({
             {member.job}
           </p>
         )}
-      </div>
-    </button>
+        </div>
+      </button>
+
+      <button
+        type="button"
+        data-connection-handle
+        aria-label={`Connect ${member.name} to someone else`}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          onConnectionStart(member._id, e);
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onConnectHandleTap(member._id);
+        }}
+        className={`absolute -bottom-1.5 left-1/2 z-30 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 bg-ivory transition-all hover:scale-110 ${
+          isConnectingFrom
+            ? "connect-pulse border-gold bg-gold/20"
+            : "border-gold/60 hover:border-gold hover:bg-cream"
+        }`}
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-gold" />
+      </button>
+    </div>
   );
 }
 
@@ -96,22 +135,17 @@ type MemberDetailProps = {
   member: Member | null;
   members: Member[];
   relationships: RelatedEntry[];
-  allRelationships: Relationship[];
   onClose: () => void;
   onDelete?: (id: Id<"members">) => void;
-  onLinkAdded?: () => void;
 };
 
 export function MemberDetail({
   member,
   members,
   relationships,
-  allRelationships,
   onClose,
   onDelete,
-  onLinkAdded,
 }: MemberDetailProps) {
-  const addRelationship = useMutation(api.members.addRelationship);
   const updateMember = useMutation(api.members.update);
   const generateUploadUrl = useMutation(api.members.generateUploadUrl);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -127,23 +161,17 @@ export function MemberDetail({
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
-  const [showLinkForm, setShowLinkForm] = useState(false);
-  const [relatedMemberId, setRelatedMemberId] = useState("");
-  const [role, setRole] = useState<SimpleRelationshipRole>("child");
-  const [linking, setLinking] = useState(false);
-
   useEffect(() => {
     if (!member) return;
-    setName(profile.name);
-    setJob(profile.job ?? "");
-    setBirthday(profile.birthday ?? "");
-    setEmail(profile.email ?? "");
+    setName(member.name);
+    setJob(member.job ?? "");
+    setBirthday(member.birthday ?? "");
+    setEmail(member.email ?? "");
     setPreviewUrl(null);
     setPictureFile(null);
     setRemovePicture(false);
     setIsEditing(false);
     setEditError(null);
-    setShowLinkForm(false);
   }, [member?._id, member?.name, member?.job, member?.birthday, member?.email]);
 
   if (!member) return null;
@@ -157,55 +185,6 @@ export function MemberDetail({
     .join("")
     .slice(0, 2)
     .toUpperCase();
-
-  const otherMembers = members.filter((m) => m._id !== profile._id);
-  const relatedMember = members.find((m) => m._id === relatedMemberId);
-  const linkPreview = describeLinkPreviewWithMembers(
-    role,
-    relatedMember,
-    members,
-    allRelationships,
-  );
-
-  async function handleAddLink(e: React.FormEvent) {
-    e.preventDefault();
-    if (!relatedMemberId) return;
-
-    setLinking(true);
-    try {
-      await addRelationship({
-        memberId,
-        relatedMemberId: relatedMemberId as Id<"members">,
-        relationship: role,
-      });
-      setRelatedMemberId("");
-      setRole("child");
-      setShowLinkForm(false);
-      onLinkAdded?.();
-    } finally {
-      setLinking(false);
-    }
-  }
-
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setPictureFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
-    setRemovePicture(false);
-  }
-
-  function cancelEdit() {
-    setName(profile.name);
-    setJob(profile.job ?? "");
-    setBirthday(profile.birthday ?? "");
-    setEmail(profile.email ?? "");
-    setPreviewUrl(null);
-    setPictureFile(null);
-    setRemovePicture(false);
-    setEditError(null);
-    setIsEditing(false);
-  }
 
   async function handleSaveEdit(e: React.FormEvent) {
     e.preventDefault();
@@ -250,6 +229,26 @@ export function MemberDetail({
     } finally {
       setSaving(false);
     }
+  }
+
+  function cancelEdit() {
+    setName(profile.name);
+    setJob(profile.job ?? "");
+    setBirthday(profile.birthday ?? "");
+    setEmail(profile.email ?? "");
+    setPreviewUrl(null);
+    setPictureFile(null);
+    setRemovePicture(false);
+    setEditError(null);
+    setIsEditing(false);
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPictureFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
+    setRemovePicture(false);
   }
 
   const displayPictureUrl =
@@ -431,73 +430,13 @@ export function MemberDetail({
           </div>
         )}
 
-        {otherMembers.length > 0 && (
-          <div className="mt-6">
-            {!showLinkForm ? (
-              <button
-                onClick={() => setShowLinkForm(true)}
-                className="flex w-full items-center justify-center gap-2 border border-line py-3 text-[11px] uppercase tracking-[0.2em] text-charcoal transition-colors hover:border-gold"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Link to another member
-              </button>
-            ) : (
-              <form onSubmit={handleAddLink} className="border border-line p-4">
-                <p className="mb-3 text-[10px] uppercase tracking-[0.2em] text-muted">
-                  New connection
-                </p>
-                <div className="mb-3 grid grid-cols-2 gap-2">
-                  {SIMPLE_RELATIONSHIP_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setRole(option.value)}
-                      className={`border px-2 py-2 text-[10px] uppercase tracking-[0.1em] ${
-                        role === option.value
-                          ? "border-gold bg-ivory text-charcoal"
-                          : "border-line text-muted"
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                <select
-                  value={relatedMemberId}
-                  onChange={(e) => setRelatedMemberId(e.target.value)}
-                  className="field-input mb-2"
-                  required
-                >
-                  <option value="">Select member</option>
-                  {otherMembers.map((m) => (
-                    <option key={m._id} value={m._id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-                {linkPreview && (
-                  <p className="mb-3 text-[10px] uppercase tracking-[0.1em] text-gold">
-                    {linkPreview}
-                  </p>
-                )}
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    disabled={linking}
-                    className="flex-1 border border-black bg-black py-2 text-[10px] uppercase tracking-[0.15em] text-ivory disabled:opacity-50"
-                  >
-                    {linking ? "Saving..." : "Save"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowLinkForm(false)}
-                    className="flex-1 border border-line py-2 text-[10px] uppercase tracking-[0.15em] text-muted"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            )}
+        {members.length > 1 && (
+          <div className="mt-6 flex items-start gap-3 border border-line bg-cream/30 px-4 py-3">
+            <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
+            <p className="text-[11px] leading-relaxed text-muted">
+              Drag from the gold dot below any person to connect them, or tap the
+              dot then tap another person.
+            </p>
           </div>
         )}
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Id } from "../../convex/_generated/dataModel";
 import { EDGE_LABELS, Member, Relationship } from "@/lib/types";
 import {
@@ -9,8 +9,9 @@ import {
   isParentChildEdgeCoveredByFamilyUnit,
 } from "@/lib/relationships";
 import { getParentChildPair, layoutTree, NODE_HEIGHT } from "@/lib/treeLayout";
-import { FocusTarget, TreeViewport } from "./TreeViewport";
+import { FocusTarget, TreeViewport, TreeViewportHandle } from "./TreeViewport";
 import { MemberNode } from "./MemberNode";
+import { PendingConnection } from "./RelationshipModal";
 
 type FamilyTreeProps = {
   members: Member[];
@@ -19,6 +20,7 @@ type FamilyTreeProps = {
   highlightedId: Id<"members"> | null;
   focusRequest: { id: Id<"members">; token: number } | null;
   onSelect: (id: Id<"members">) => void;
+  onPendingConnection: (connection: PendingConnection) => void;
 };
 
 type TreeNode = Member & { x: number; y: number };
@@ -213,7 +215,26 @@ export function FamilyTree({
   highlightedId,
   focusRequest,
   onSelect,
+  onPendingConnection,
 }: FamilyTreeProps) {
+  const viewportRef = useRef<TreeViewportHandle>(null);
+  const dragMovedRef = useRef(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+
+  const [connectionDrag, setConnectionDrag] = useState<{
+    fromId: Id<"members">;
+    fromX: number;
+    fromY: number;
+    toX: number;
+    toY: number;
+  } | null>(null);
+  const [hoverTargetId, setHoverTargetId] = useState<Id<"members"> | null>(
+    null,
+  );
+  const [connectSourceId, setConnectSourceId] = useState<Id<"members"> | null>(
+    null,
+  );
+
   const { nodes, edges, width, height } = useMemo(
     () => layoutTree(members, relationships),
     [members, relationships],
@@ -236,6 +257,111 @@ export function FamilyTree({
     [members, relationships],
   );
 
+  const completeConnection = useCallback(
+    (fromId: Id<"members">, toId: Id<"members">) => {
+      if (fromId === toId) return;
+      onPendingConnection({ fromId, toId });
+      setConnectSourceId(null);
+      setHoverTargetId(null);
+      setConnectionDrag(null);
+    },
+    [onPendingConnection],
+  );
+
+  const handleConnectionStart = useCallback(
+    (fromId: Id<"members">, e: React.PointerEvent) => {
+      const node = nodeMap.get(fromId);
+      if (!node) return;
+
+      dragMovedRef.current = false;
+      dragStartRef.current = { x: e.clientX, y: e.clientY };
+
+      const canvas = viewportRef.current?.clientToCanvas(e.clientX, e.clientY);
+      setConnectionDrag({
+        fromId,
+        fromX: node.x,
+        fromY: node.y + NODE_HEIGHT,
+        toX: canvas?.x ?? node.x,
+        toY: canvas?.y ?? node.y + NODE_HEIGHT,
+      });
+      setConnectSourceId(fromId);
+    },
+    [nodeMap],
+  );
+
+  const handleConnectHandleTap = useCallback((id: Id<"members">) => {
+    if (dragMovedRef.current) return;
+    setConnectSourceId((current) => (current === id ? null : id));
+  }, []);
+
+  const handleSelect = useCallback(
+    (id: Id<"members">) => {
+      if (connectSourceId && connectSourceId !== id) {
+        completeConnection(connectSourceId, id);
+        return;
+      }
+      onSelect(id);
+    },
+    [connectSourceId, completeConnection, onSelect],
+  );
+
+  useEffect(() => {
+    if (!connectionDrag) return;
+
+    const fromId = connectionDrag.fromId;
+
+    function onMove(e: PointerEvent) {
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      if (Math.hypot(dx, dy) > 6) {
+        dragMovedRef.current = true;
+      }
+
+      const pos = viewportRef.current?.clientToCanvas(e.clientX, e.clientY);
+      if (pos) {
+        setConnectionDrag((current) =>
+          current ? { ...current, toX: pos.x, toY: pos.y } : null,
+        );
+      }
+
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const memberEl = el?.closest("[data-member-id]");
+      const targetId = memberEl?.getAttribute("data-member-id") as
+        | Id<"members">
+        | undefined;
+
+      setHoverTargetId(targetId && targetId !== fromId ? targetId : null);
+    }
+
+    function onUp(e: PointerEvent) {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const memberEl = el?.closest("[data-member-id]");
+      const targetId = memberEl?.getAttribute("data-member-id") as
+        | Id<"members">
+        | undefined;
+
+      if (dragMovedRef.current && targetId && targetId !== fromId) {
+        completeConnection(fromId, targetId);
+      } else if (!dragMovedRef.current) {
+        setConnectionDrag(null);
+        setHoverTargetId(null);
+      } else {
+        setConnectionDrag(null);
+        setHoverTargetId(null);
+        if (!targetId) {
+          setConnectSourceId(null);
+        }
+      }
+    }
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [connectionDrag, completeConnection]);
+
   if (members.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-6 py-24 text-center">
@@ -244,8 +370,8 @@ export function FamilyTree({
           Begin Your Lineage
         </h2>
         <p className="mt-4 max-w-sm text-sm leading-relaxed text-muted">
-          Add your first family member to start building an elegant record of
-          your heritage.
+          Add people first, then drag from the gold dot on one person to another
+          to connect them.
         </p>
       </div>
     );
@@ -256,9 +382,11 @@ export function FamilyTree({
 
   return (
     <TreeViewport
+      ref={viewportRef}
       canvasWidth={canvasWidth}
       canvasHeight={canvasHeight}
       focusTarget={focusTarget}
+      isConnecting={Boolean(connectionDrag || connectSourceId)}
     >
       <svg
         className="pointer-events-none absolute inset-0"
@@ -266,6 +394,19 @@ export function FamilyTree({
         height={canvasHeight}
         style={{ overflow: "visible" }}
       >
+        {connectionDrag && (
+          <line
+            x1={connectionDrag.fromX}
+            y1={connectionDrag.fromY}
+            x2={connectionDrag.toX}
+            y2={connectionDrag.toY}
+            stroke="#b8976a"
+            strokeWidth={2}
+            strokeDasharray="6 4"
+            strokeLinecap="round"
+          />
+        )}
+
         {familyUnits.map((unit) => renderFamilyUnit(unit, nodeMap))}
 
         {edges.map((edge) => {
@@ -329,9 +470,20 @@ export function FamilyTree({
           member={node}
           selected={selectedId === node._id}
           highlighted={highlightedId === node._id}
-          onSelect={onSelect}
+          connectSourceId={connectSourceId}
+          isConnectTarget={hoverTargetId === node._id}
+          isConnectingFrom={connectSourceId === node._id}
+          onSelect={handleSelect}
+          onConnectionStart={handleConnectionStart}
+          onConnectHandleTap={handleConnectHandleTap}
         />
       ))}
+
+      {connectSourceId && !connectionDrag && (
+        <div className="pointer-events-none absolute left-1/2 top-4 z-40 -translate-x-1/2 border border-gold/40 bg-ivory/95 px-4 py-2 text-[10px] uppercase tracking-[0.15em] text-gold shadow-sm backdrop-blur-sm">
+          Tap another person to connect
+        </div>
+      )}
     </TreeViewport>
   );
 }

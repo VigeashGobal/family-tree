@@ -3,6 +3,33 @@ import { Member, Relationship, RelationshipType, relationshipFromPerspective } f
 
 export type SimpleRelationshipRole = "child" | "parent" | "spouse" | "sibling";
 
+export const CONNECT_RELATIONSHIP_OPTIONS: {
+  value: SimpleRelationshipRole;
+  label: string;
+}[] = [
+  { value: "child", label: "Child of" },
+  { value: "parent", label: "Parent of" },
+  { value: "spouse", label: "Spouse of" },
+  { value: "sibling", label: "Sibling of" },
+];
+
+export function describeConnectionPreview(
+  fromName: string,
+  toName: string,
+  role: SimpleRelationshipRole,
+): string {
+  switch (role) {
+    case "child":
+      return `${fromName} is a child of ${toName}`;
+    case "parent":
+      return `${fromName} is a parent of ${toName}`;
+    case "spouse":
+      return `${fromName} is the spouse of ${toName}`;
+    case "sibling":
+      return `${fromName} is a sibling of ${toName}`;
+  }
+}
+
 export const SIMPLE_RELATIONSHIP_OPTIONS: {
   value: SimpleRelationshipRole;
   label: string;

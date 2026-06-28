@@ -98,3 +98,17 @@ button {
 .search-highlight {
   animation: search-pulse 1s ease-in-out 2;
 }
+
+@keyframes connect-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(184, 151, 106, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(184, 151, 106, 0);
+  }
+}
+
+.connect-pulse {
+  animation: connect-pulse 1.2s ease-in-out infinite;
+}

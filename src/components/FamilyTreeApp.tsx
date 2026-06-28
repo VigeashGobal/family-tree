@@ -11,6 +11,10 @@ import {
   buildMemberRelationships,
   MemberDetail,
 } from "@/components/MemberNode";
+import {
+  PendingConnection,
+  RelationshipModal,
+} from "@/components/RelationshipModal";
 
 export function FamilyTreeApp() {
   const data = useQuery(api.members.list);
@@ -25,6 +29,8 @@ export function FamilyTreeApp() {
     id: Id<"members">;
     token: number;
   } | null>(null);
+  const [pendingConnection, setPendingConnection] =
+    useState<PendingConnection | null>(null);
 
   const members = data?.members ?? [];
   const relationships = data?.relationships ?? [];
@@ -75,6 +81,7 @@ export function FamilyTreeApp() {
             setSelectedId(id);
             setHighlightedId(null);
           }}
+          onPendingConnection={setPendingConnection}
         />
 
         {selectedMember && (
@@ -88,7 +95,6 @@ export function FamilyTreeApp() {
               member={selectedMember}
               members={members}
               relationships={selectedRelationships}
-              allRelationships={relationships}
               onClose={() => setSelectedId(null)}
               onDelete={async (id) => {
                 await removeMember({ id });
@@ -101,9 +107,20 @@ export function FamilyTreeApp() {
 
       {showAddModal && (
         <AddMemberModal
-          members={members}
-          relationships={relationships}
           onClose={() => setShowAddModal(false)}
+          onCreated={(id) => {
+            setSelectedId(id);
+            setFocusRequest({ id, token: Date.now() });
+          }}
+        />
+      )}
+
+      {pendingConnection && (
+        <RelationshipModal
+          connection={pendingConnection}
+          members={members}
+          onClose={() => setPendingConnection(null)}
+          onSaved={() => setPendingConnection(null)}
         />
       )}
     </div>
