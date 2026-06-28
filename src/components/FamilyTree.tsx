@@ -9,12 +9,15 @@ import {
   isParentChildEdgeCoveredByFamilyUnit,
 } from "@/lib/relationships";
 import { getParentChildPair, layoutTree, NODE_HEIGHT } from "@/lib/treeLayout";
+import { FocusTarget, TreeViewport } from "./TreeViewport";
 import { MemberNode } from "./MemberNode";
 
 type FamilyTreeProps = {
   members: Member[];
   relationships: Relationship[];
   selectedId: Id<"members"> | null;
+  highlightedId: Id<"members"> | null;
+  focusRequest: { id: Id<"members">; token: number } | null;
   onSelect: (id: Id<"members">) => void;
 };
 
@@ -116,8 +119,7 @@ function renderFamilyUnit(
   const centerParentX = (minParentX + maxParentX) / 2;
 
   const label = parents.length > 1 ? "Parents" : "Parent";
-  const labelX =
-    parents.length > 1 ? centerParentX : parents[0]!.x;
+  const labelX = parents.length > 1 ? centerParentX : parents[0]!.x;
 
   return (
     <g key={unit.key}>
@@ -208,12 +210,21 @@ export function FamilyTree({
   members,
   relationships,
   selectedId,
+  highlightedId,
+  focusRequest,
   onSelect,
 }: FamilyTreeProps) {
   const { nodes, edges, width, height } = useMemo(
     () => layoutTree(members, relationships),
     [members, relationships],
   );
+
+  const focusTarget = useMemo<FocusTarget | null>(() => {
+    if (!focusRequest) return null;
+    const node = nodes.find((n) => n._id === focusRequest.id);
+    if (!node) return null;
+    return { x: node.x, y: node.y, token: focusRequest.token };
+  }, [focusRequest, nodes]);
 
   const nodeMap = useMemo(
     () => new Map(nodes.map((n) => [n._id, n])),
@@ -229,7 +240,7 @@ export function FamilyTree({
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-6 py-24 text-center">
         <div className="mb-6 h-px w-16 bg-gold" />
-        <h2 className="font-serif text-3xl font-light tracking-wide text-charcoal">
+        <h2 className="font-serif text-2xl font-light tracking-wide text-charcoal md:text-3xl">
           Begin Your Lineage
         </h2>
         <p className="mt-4 max-w-sm text-sm leading-relaxed text-muted">
@@ -240,88 +251,87 @@ export function FamilyTree({
     );
   }
 
+  const canvasWidth = Math.max(width, 400);
+  const canvasHeight = Math.max(height, 300);
+
   return (
-    <div className="flex-1 overflow-auto p-6 md:p-10">
-      <div
-        className="relative mx-auto"
-        style={{
-          width: Math.max(width, 400),
-          height: Math.max(height, 300),
-          minHeight: 400,
-        }}
+    <TreeViewport
+      canvasWidth={canvasWidth}
+      canvasHeight={canvasHeight}
+      focusTarget={focusTarget}
+    >
+      <svg
+        className="pointer-events-none absolute inset-0"
+        width={canvasWidth}
+        height={canvasHeight}
+        style={{ overflow: "visible" }}
       >
-        <svg
-          className="pointer-events-none absolute inset-0"
-          width={width}
-          height={height}
-          style={{ overflow: "visible" }}
-        >
-          {familyUnits.map((unit) => renderFamilyUnit(unit, nodeMap))}
+        {familyUnits.map((unit) => renderFamilyUnit(unit, nodeMap))}
 
-          {edges.map((edge) => {
-            const from = nodeMap.get(edge.from);
-            const to = nodeMap.get(edge.to);
-            if (!from || !to) return null;
+        {edges.map((edge) => {
+          const from = nodeMap.get(edge.from);
+          const to = nodeMap.get(edge.to);
+          if (!from || !to) return null;
 
-            if (edge.type === "spouse") {
-              return renderSpouseOrSiblingEdge(edge, from, to);
-            }
+          if (edge.type === "spouse") {
+            return renderSpouseOrSiblingEdge(edge, from, to);
+          }
 
-            if (edge.type === "sibling") {
-              if (areSiblingsConnected(edge.from, edge.to, familyUnits)) {
-                return null;
-              }
-              return renderSpouseOrSiblingEdge(edge, from, to);
-            }
-
-            const pair = getParentChildPair(edge);
-            if (!pair) return null;
-
-            if (
-              isParentChildEdgeCoveredByFamilyUnit(
-                pair.child,
-                pair.parent,
-                familyUnits,
-              )
-            ) {
+          if (edge.type === "sibling") {
+            if (areSiblingsConnected(edge.from, edge.to, familyUnits)) {
               return null;
             }
+            return renderSpouseOrSiblingEdge(edge, from, to);
+          }
 
-            const childNode = from._id === pair.child ? from : to;
-            const parentNode = from._id === pair.parent ? from : to;
-            const cx = childNode.x;
-            const cy = childNode.y + NODE_HEIGHT;
-            const px = parentNode.x;
-            const py = parentNode.y;
-            const midY = (cy + py) / 2;
+          const pair = getParentChildPair(edge);
+          if (!pair) return null;
 
-            return (
-              <g key={edge.id}>
-                <path
-                  d={`M ${cx} ${cy} L ${cx} ${midY} L ${px} ${midY} L ${px} ${py}`}
-                  fill="none"
-                  stroke="#b8976a"
-                  strokeWidth={1}
-                />
-                <EdgeLabel
-                  x={(cx + px) / 2}
-                  y={midY}
-                  label={EDGE_LABELS[edge.type]}
-                />
-              </g>
-            );
-          })}
-        </svg>
+          if (
+            isParentChildEdgeCoveredByFamilyUnit(
+              pair.child,
+              pair.parent,
+              familyUnits,
+            )
+          ) {
+            return null;
+          }
 
-        {nodes.map((node) => (
-          <MemberNode
-            key={node._id}
-            member={node}
-            selected={selectedId === node._id}
-            onSelect={onSelect}
-          />
-        ))}
-      </div>
-    </div>
+          const childNode = from._id === pair.child ? from : to;
+          const parentNode = from._id === pair.parent ? from : to;
+          const cx = childNode.x;
+          const cy = childNode.y + NODE_HEIGHT;
+          const px = parentNode.x;
+          const py = parentNode.y;
+          const midY = (cy + py) / 2;
+
+          return (
+            <g key={edge.id}>
+              <path
+                d={`M ${cx} ${cy} L ${cx} ${midY} L ${px} ${midY} L ${px} ${py}`}
+                fill="none"
+                stroke="#b8976a"
+                strokeWidth={1}
+              />
+              <EdgeLabel
+                x={(cx + px) / 2}
+                y={midY}
+                label={EDGE_LABELS[edge.type]}
+              />
+            </g>
+          );
+        })}
+      </svg>
+
+      {nodes.map((node) => (
+        <MemberNode
+          key={node._id}
+          member={node}
+          selected={selectedId === node._id}
+          highlighted={highlightedId === node._id}
+          onSelect={onSelect}
+        />
+      ))}
+    </TreeViewport>
   );
 }

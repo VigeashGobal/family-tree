@@ -20,6 +20,11 @@ export const metadata: Metadata = {
   description: "An elegant family tree for your lineage",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -27,7 +32,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${serif.variable} ${sans.variable} h-full`}>
-      <body className="min-h-full flex flex-col antialiased">
+      <body className="flex h-dvh flex-col overflow-hidden antialiased">
         <ConvexClientProvider>{children}</ConvexClientProvider>
       </body>
     </html>

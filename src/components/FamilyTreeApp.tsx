@@ -18,6 +18,13 @@ export function FamilyTreeApp() {
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedId, setSelectedId] = useState<Id<"members"> | null>(null);
+  const [highlightedId, setHighlightedId] = useState<Id<"members"> | null>(
+    null,
+  );
+  const [focusRequest, setFocusRequest] = useState<{
+    id: Id<"members">;
+    token: number;
+  } | null>(null);
 
   const members = data?.members ?? [];
   const relationships = data?.relationships ?? [];
@@ -28,6 +35,13 @@ export function FamilyTreeApp() {
     if (!selectedId) return [];
     return buildMemberRelationships(selectedId, members, relationships);
   }, [selectedId, members, relationships]);
+
+  function handleSearchSelect(id: Id<"members">) {
+    setSelectedId(id);
+    setHighlightedId(id);
+    setFocusRequest({ id, token: Date.now() });
+    setTimeout(() => setHighlightedId(null), 2500);
+  }
 
   if (data === undefined) {
     return (
@@ -43,29 +57,45 @@ export function FamilyTreeApp() {
   }
 
   return (
-    <>
-      <Header onAddMember={() => setShowAddModal(true)} />
+    <div className="flex h-full min-h-0 flex-col">
+      <Header
+        members={members}
+        onAddMember={() => setShowAddModal(true)}
+        onSearchSelect={handleSearchSelect}
+      />
 
-      <main className="relative flex flex-1 overflow-hidden">
+      <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         <FamilyTree
           members={members}
           relationships={relationships}
           selectedId={selectedId}
-          onSelect={setSelectedId}
+          highlightedId={highlightedId}
+          focusRequest={focusRequest}
+          onSelect={(id) => {
+            setSelectedId(id);
+            setHighlightedId(null);
+          }}
         />
 
         {selectedMember && (
-          <MemberDetail
-            member={selectedMember}
-            members={members}
-            relationships={selectedRelationships}
-            allRelationships={relationships}
-            onClose={() => setSelectedId(null)}
-            onDelete={async (id) => {
-              await removeMember({ id });
-              setSelectedId(null);
-            }}
-          />
+          <>
+            <div
+              className="fixed inset-0 z-40 bg-black/30 md:hidden"
+              onClick={() => setSelectedId(null)}
+              aria-hidden
+            />
+            <MemberDetail
+              member={selectedMember}
+              members={members}
+              relationships={selectedRelationships}
+              allRelationships={relationships}
+              onClose={() => setSelectedId(null)}
+              onDelete={async (id) => {
+                await removeMember({ id });
+                setSelectedId(null);
+              }}
+            />
+          </>
         )}
       </main>
 
@@ -76,6 +106,6 @@ export function FamilyTreeApp() {
           onClose={() => setShowAddModal(false)}
         />
       )}
-    </>
+    </div>
   );
 }

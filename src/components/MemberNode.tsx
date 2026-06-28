@@ -14,14 +14,21 @@ import { Briefcase, Calendar, Mail, Pencil, Plus, Upload, User } from "lucide-re
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import type { GenericId } from "convex/values";
+import { NODE_WIDTH } from "@/lib/treeLayout";
 
 type MemberNodeProps = {
   member: Member & { x: number; y: number };
   selected: boolean;
+  highlighted?: boolean;
   onSelect: (id: Id<"members">) => void;
 };
 
-export function MemberNode({ member, selected, onSelect }: MemberNodeProps) {
+export function MemberNode({
+  member,
+  selected,
+  highlighted,
+  onSelect,
+}: MemberNodeProps) {
   const initials = member.name
     .split(" ")
     .map((n) => n[0])
@@ -32,22 +39,24 @@ export function MemberNode({ member, selected, onSelect }: MemberNodeProps) {
   return (
     <button
       onClick={() => onSelect(member._id)}
-      className={`group absolute w-[180px] text-left transition-all duration-300 ${
-        selected ? "z-20" : "z-10"
+      className={`group absolute w-[148px] text-left transition-all duration-300 sm:w-[168px] md:w-[180px] ${
+        selected ? "z-20" : highlighted ? "z-20" : "z-10"
       }`}
       style={{
-        left: member.x - 90,
+        left: member.x - NODE_WIDTH / 2,
         top: member.y,
       }}
     >
       <div
-        className={`flex flex-col items-center border bg-ivory p-4 transition-all duration-300 ${
+        className={`flex flex-col items-center border bg-ivory p-3 transition-all duration-300 md:p-4 ${
           selected
             ? "border-gold shadow-[0_8px_30px_rgba(184,151,106,0.2)]"
-            : "border-line hover:border-gold/50 hover:shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+            : highlighted
+              ? "search-highlight border-gold shadow-[0_8px_30px_rgba(184,151,106,0.35)]"
+              : "border-line hover:border-gold/50 hover:shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
         }`}
       >
-        <div className="relative mb-3 h-20 w-20 overflow-hidden rounded-full border border-line">
+        <div className="relative mb-2 h-16 w-16 overflow-hidden rounded-full border border-line md:mb-3 md:h-20 md:w-20">
           {member.pictureUrl ? (
             <Image
               src={member.pictureUrl}
@@ -247,7 +256,7 @@ export function MemberDetail({
     previewUrl ?? (removePicture ? null : profile.pictureUrl);
 
   return (
-    <aside className="animate-fade-in fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col border-l border-line bg-ivory shadow-2xl md:w-[400px]">
+    <aside className="animate-fade-in fixed inset-x-0 bottom-0 z-50 flex max-h-[88dvh] w-full flex-col rounded-t-2xl border-t border-line bg-ivory shadow-2xl md:inset-x-auto md:right-0 md:top-0 md:bottom-0 md:h-full md:max-h-full md:max-w-md md:rounded-none md:border-l md:border-t-0 md:w-[400px]">
       <div className="flex items-center justify-between border-b border-line px-6 py-5">
         <h2 className="font-serif text-xl tracking-[0.15em] uppercase">
           {isEditing ? "Edit Profile" : "Profile"}

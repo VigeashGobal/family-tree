@@ -84,3 +84,17 @@ button {
 .animate-fade-in {
   animation: fade-in 0.4s ease-out forwards;
 }
+
+@keyframes search-pulse {
+  0%,
+  100% {
+    box-shadow: 0 8px 30px rgba(184, 151, 106, 0.35);
+  }
+  50% {
+    box-shadow: 0 8px 40px rgba(184, 151, 106, 0.55);
+  }
+}
+
+.search-highlight {
+  animation: search-pulse 1s ease-in-out 2;
+}
