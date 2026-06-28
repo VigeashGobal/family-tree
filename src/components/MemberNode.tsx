@@ -3,9 +3,9 @@
 import { useMutation } from "convex/react";
 import { Id } from "../../convex/_generated/dataModel";
 import { api } from "../../convex/_generated/api";
-import { buildDisplayRelationships } from "@/lib/relationships";
+import { buildDisplayRelationships, DisplayRelationship } from "@/lib/relationships";
 import { Member, Relationship, RELATIONSHIP_LABELS } from "@/lib/types";
-import { Briefcase, Calendar, Link2, Mail, Pencil, Upload, User } from "lucide-react";
+import { Briefcase, Calendar, Link2, Mail, Pencil, Upload, User, X } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import type { GenericId } from "convex/values";
@@ -125,11 +125,7 @@ export function MemberNode({
   );
 }
 
-type RelatedEntry = {
-  relatedId?: Id<"members">;
-  relatedName: string;
-  type: import("@/lib/types").RelationshipType;
-};
+type RelatedEntry = DisplayRelationship;
 
 type MemberDetailProps = {
   member: Member | null;
@@ -147,6 +143,7 @@ export function MemberDetail({
   onDelete,
 }: MemberDetailProps) {
   const updateMember = useMutation(api.members.update);
+  const removeRelationship = useMutation(api.members.removeRelationship);
   const generateUploadUrl = useMutation(api.members.generateUploadUrl);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -160,6 +157,9 @@ export function MemberDetail({
   const [removePicture, setRemovePicture] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<Id<"relationships"> | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!member) return;
@@ -249,6 +249,15 @@ export function MemberDetail({
     setPictureFile(file);
     setPreviewUrl(URL.createObjectURL(file));
     setRemovePicture(false);
+  }
+
+  async function handleRemoveRelationship(relationshipId: Id<"relationships">) {
+    setRemovingId(relationshipId);
+    try {
+      await removeRelationship({ id: relationshipId });
+    } finally {
+      setRemovingId(null);
+    }
   }
 
   const displayPictureUrl =
@@ -416,14 +425,29 @@ export function MemberDetail({
               {relationships.map((rel, index) => (
                 <div
                   key={`${rel.type}-${rel.relatedName}-${index}`}
-                  className="border border-line bg-cream/40 px-4 py-3 text-sm"
+                  className="flex items-start justify-between gap-2 border border-line bg-cream/40 px-4 py-3 text-sm"
                 >
-                  <span className="text-[10px] uppercase tracking-[0.15em] text-gold">
-                    {RELATIONSHIP_LABELS[rel.type]}
-                  </span>
-                  <p className="mt-1 font-serif text-charcoal">
-                    {rel.relatedName}
-                  </p>
+                  <div>
+                    <span className="text-[10px] uppercase tracking-[0.15em] text-gold">
+                      {RELATIONSHIP_LABELS[rel.type]}
+                    </span>
+                    <p className="mt-1 font-serif text-charcoal">
+                      {rel.relatedName}
+                    </p>
+                  </div>
+                  {rel.relationshipId && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleRemoveRelationship(rel.relationshipId!)
+                      }
+                      disabled={removingId === rel.relationshipId}
+                      className="shrink-0 text-muted transition-colors hover:text-red-500 disabled:opacity-50"
+                      aria-label={`Remove connection to ${rel.relatedName}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

@@ -167,6 +167,16 @@ export const addRelationship = mutation({
   },
 });
 
+export const removeRelationship = mutation({
+  args: { id: v.id("relationships") },
+  handler: async (ctx, { id }) => {
+    const relationship = await ctx.db.get(id);
+    if (!relationship) return;
+
+    await ctx.db.delete(id);
+  },
+});
+
 export const remove = mutation({
   args: { id: v.id("members") },
   handler: async (ctx, { id }) => {

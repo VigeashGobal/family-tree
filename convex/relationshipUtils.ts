@@ -49,12 +49,6 @@ export function expandLinksWithCouples(
         addLink({ relatedMemberId: spouseId, relationship: "child" });
       }
     }
-
-    if (link.relationship === "parent") {
-      for (const spouseId of getSpouses(link.relatedMemberId, relationships)) {
-        addLink({ relatedMemberId: spouseId, relationship: "parent" });
-      }
-    }
   }
 
   return expanded;

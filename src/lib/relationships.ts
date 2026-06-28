@@ -195,15 +195,6 @@ export function expandLinksWithCouples(
         addLink({ relatedMemberId: spouseId, relationship: "child" });
       }
     }
-
-    if (link.relationship === "parent") {
-      for (const spouseId of getSpouses(link.relatedMemberId, relationships)) {
-        addLink({
-          relatedMemberId: spouseId,
-          relationship: "parent",
-        });
-      }
-    }
   }
 
   return expanded;
@@ -264,6 +255,7 @@ export function areSiblingsConnected(
 }
 
 export type DisplayRelationship = {
+  relationshipId?: Id<"relationships">;
   relatedId?: Id<"members">;
   relatedName: string;
   type: RelationshipType;
@@ -280,6 +272,7 @@ export function buildDisplayRelationships(
     .map((rel) => {
       const { relatedId, type } = relationshipFromPerspective(memberId, rel);
       return {
+        relationshipId: rel._id,
         relatedId,
         relatedName: memberMap.get(relatedId)?.name ?? "Unknown",
         type,
