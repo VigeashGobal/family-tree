@@ -59,6 +59,7 @@ export function FamilyTreeApp() {
             member={selectedMember}
             members={members}
             relationships={selectedRelationships}
+            allRelationships={relationships}
             onClose={() => setSelectedId(null)}
             onDelete={async (id) => {
               await removeMember({ id });
@@ -71,6 +72,7 @@ export function FamilyTreeApp() {
       {showAddModal && (
         <AddMemberModal
           members={members}
+          relationships={relationships}
           onClose={() => setShowAddModal(false)}
         />
       )}

@@ -4,12 +4,12 @@ import { useMutation } from "convex/react";
 import { Id } from "../../convex/_generated/dataModel";
 import { api } from "../../convex/_generated/api";
 import {
-  Member,
-  RELATIONSHIP_LABELS,
-  Relationship,
-  RelationshipType,
-  relationshipFromPerspective,
-} from "@/lib/types";
+  buildDisplayRelationships,
+  describeLinkPreviewWithMembers,
+  SIMPLE_RELATIONSHIP_OPTIONS,
+  SimpleRelationshipRole,
+} from "@/lib/relationships";
+import { Member, Relationship, RELATIONSHIP_LABELS } from "@/lib/types";
 import { Briefcase, Calendar, Mail, Plus, User } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
@@ -77,15 +77,16 @@ export function MemberNode({ member, selected, onSelect }: MemberNodeProps) {
 }
 
 type RelatedEntry = {
-  relatedId: Id<"members">;
+  relatedId?: Id<"members">;
   relatedName: string;
-  type: RelationshipType;
+  type: import("@/lib/types").RelationshipType;
 };
 
 type MemberDetailProps = {
   member: Member | null;
   members: Member[];
   relationships: RelatedEntry[];
+  allRelationships: Relationship[];
   onClose: () => void;
   onDelete?: (id: Id<"members">) => void;
   onLinkAdded?: () => void;
@@ -95,6 +96,7 @@ export function MemberDetail({
   member,
   members,
   relationships,
+  allRelationships,
   onClose,
   onDelete,
   onLinkAdded,
@@ -102,7 +104,7 @@ export function MemberDetail({
   const addRelationship = useMutation(api.members.addRelationship);
   const [showLinkForm, setShowLinkForm] = useState(false);
   const [relatedMemberId, setRelatedMemberId] = useState("");
-  const [relationship, setRelationship] = useState<RelationshipType>("child");
+  const [role, setRole] = useState<SimpleRelationshipRole>("child");
   const [linking, setLinking] = useState(false);
 
   if (!member) return null;
@@ -115,6 +117,13 @@ export function MemberDetail({
     .toUpperCase();
 
   const otherMembers = members.filter((m) => m._id !== member._id);
+  const relatedMember = members.find((m) => m._id === relatedMemberId);
+  const linkPreview = describeLinkPreviewWithMembers(
+    role,
+    relatedMember,
+    members,
+    allRelationships,
+  );
 
   async function handleAddLink(e: React.FormEvent) {
     e.preventDefault();
@@ -125,10 +134,10 @@ export function MemberDetail({
       await addRelationship({
         memberId: member!._id,
         relatedMemberId: relatedMemberId as Id<"members">,
-        relationship,
+        relationship: role,
       });
       setRelatedMemberId("");
-      setRelationship("child");
+      setRole("child");
       setShowLinkForm(false);
       onLinkAdded?.();
     } finally {
@@ -179,9 +188,9 @@ export function MemberDetail({
               Relationships
             </p>
             <div className="space-y-2">
-              {relationships.map((rel) => (
+              {relationships.map((rel, index) => (
                 <div
-                  key={`${rel.relatedId}-${rel.type}`}
+                  key={`${rel.type}-${rel.relatedName}-${index}`}
                   className="border border-line bg-cream/40 px-4 py-3 text-sm"
                 >
                   <span className="text-[10px] uppercase tracking-[0.15em] text-gold">
@@ -211,6 +220,22 @@ export function MemberDetail({
                 <p className="mb-3 text-[10px] uppercase tracking-[0.2em] text-muted">
                   New connection
                 </p>
+                <div className="mb-3 grid grid-cols-2 gap-2">
+                  {SIMPLE_RELATIONSHIP_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setRole(option.value)}
+                      className={`border px-2 py-2 text-[10px] uppercase tracking-[0.1em] ${
+                        role === option.value
+                          ? "border-gold bg-ivory text-charcoal"
+                          : "border-line text-muted"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
                 <select
                   value={relatedMemberId}
                   onChange={(e) => setRelatedMemberId(e.target.value)}
@@ -224,24 +249,11 @@ export function MemberDetail({
                     </option>
                   ))}
                 </select>
-                <select
-                  value={relationship}
-                  onChange={(e) =>
-                    setRelationship(e.target.value as RelationshipType)
-                  }
-                  className="field-input mb-3"
-                >
-                  {(
-                    Object.entries(RELATIONSHIP_LABELS) as [
-                      RelationshipType,
-                      string,
-                    ][]
-                  ).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
+                {linkPreview && (
+                  <p className="mb-3 text-[10px] uppercase tracking-[0.1em] text-gold">
+                    {linkPreview}
+                  </p>
+                )}
                 <div className="flex gap-2">
                   <button
                     type="submit"
@@ -302,18 +314,7 @@ export function buildMemberRelationships(
   members: Member[],
   relationships: Relationship[],
 ): RelatedEntry[] {
-  const memberMap = new Map(members.map((m) => [m._id, m]));
-
-  return relationships
-    .filter((r) => r.fromMemberId === memberId || r.toMemberId === memberId)
-    .map((rel) => {
-      const { relatedId, type } = relationshipFromPerspective(memberId, rel);
-      return {
-        relatedId,
-        relatedName: memberMap.get(relatedId)?.name ?? "Unknown",
-        type,
-      };
-    });
+  return buildDisplayRelationships(memberId, members, relationships);
 }
 
 function DetailRow({

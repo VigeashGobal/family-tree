@@ -9,6 +9,7 @@
  */
 
 import type * as members from "../members.js";
+import type * as relationshipUtils from "../relationshipUtils.js";
 
 import type {
   ApiFromModules,
@@ -18,6 +19,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   members: typeof members;
+  relationshipUtils: typeof relationshipUtils;
 }>;
 
 /**

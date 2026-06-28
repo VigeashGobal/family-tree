@@ -1,5 +1,9 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import {
+  expandLinksWithCouples,
+  insertRelationshipIfNew,
+} from "./relationshipUtils";
 import { relationshipType } from "./schema";
 
 export const list = query({
@@ -77,12 +81,16 @@ export const create = mutation({
       email: args.email,
     });
 
-    for (const link of args.links ?? []) {
-      await ctx.db.insert("relationships", {
-        fromMemberId: memberId,
-        toMemberId: link.relatedMemberId,
-        type: link.relationship,
-      });
+    const existingRelationships = await ctx.db.query("relationships").collect();
+    const links = expandLinksWithCouples(args.links ?? [], existingRelationships);
+
+    for (const link of links) {
+      await insertRelationshipIfNew(
+        ctx,
+        memberId,
+        link.relatedMemberId,
+        link.relationship,
+      );
     }
 
     return memberId;
@@ -100,24 +108,24 @@ export const addRelationship = mutation({
       throw new Error("Cannot link a member to themselves");
     }
 
-    const existing = await ctx.db
-      .query("relationships")
-      .filter((q) =>
-        q.and(
-          q.eq(q.field("fromMemberId"), memberId),
-          q.eq(q.field("toMemberId"), relatedMemberId),
-          q.eq(q.field("type"), relationship),
-        ),
-      )
-      .first();
+    const existingRelationships = await ctx.db.query("relationships").collect();
+    const links = expandLinksWithCouples(
+      [{ relatedMemberId, relationship }],
+      existingRelationships,
+    );
 
-    if (existing) return existing._id;
+    const ids = [];
+    for (const link of links) {
+      const id = await insertRelationshipIfNew(
+        ctx,
+        memberId,
+        link.relatedMemberId,
+        link.relationship,
+      );
+      ids.push(id);
+    }
 
-    return await ctx.db.insert("relationships", {
-      fromMemberId: memberId,
-      toMemberId: relatedMemberId,
-      type: relationship,
-    });
+    return ids[0];
   },
 });
 

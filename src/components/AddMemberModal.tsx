@@ -2,29 +2,29 @@
 
 import { useMutation } from "convex/react";
 import type { GenericId } from "convex/values";
-import { Plus, Trash2, Upload, X } from "lucide-react";
+import { Upload, X } from "lucide-react";
 import Image from "next/image";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Id } from "../../convex/_generated/dataModel";
 import { api } from "../../convex/_generated/api";
-import { Member, RELATIONSHIP_LABELS, RelationshipType } from "@/lib/types";
-
-type MemberLink = {
-  relatedMemberId: string;
-  relationship: RelationshipType;
-};
+import { Member } from "@/lib/types";
+import {
+  describeLinkPreviewWithMembers,
+  SIMPLE_RELATIONSHIP_OPTIONS,
+  SimpleRelationshipRole,
+} from "@/lib/relationships";
 
 type AddMemberModalProps = {
   members: Member[];
+  relationships: { fromMemberId: Id<"members">; toMemberId: Id<"members">; type: string }[];
   onClose: () => void;
 };
 
-const emptyLink = (): MemberLink => ({
-  relatedMemberId: "",
-  relationship: "child",
-});
-
-export function AddMemberModal({ members, onClose }: AddMemberModalProps) {
+export function AddMemberModal({
+  members,
+  relationships,
+  onClose,
+}: AddMemberModalProps) {
   const createMember = useMutation(api.members.create);
   const generateUploadUrl = useMutation(api.members.generateUploadUrl);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -33,7 +33,8 @@ export function AddMemberModal({ members, onClose }: AddMemberModalProps) {
   const [job, setJob] = useState("");
   const [birthday, setBirthday] = useState("");
   const [email, setEmail] = useState("");
-  const [links, setLinks] = useState<MemberLink[]>([emptyLink()]);
+  const [role, setRole] = useState<SimpleRelationshipRole>("child");
+  const [relatedMemberId, setRelatedMemberId] = useState("");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [pictureFile, setPictureFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -41,21 +42,19 @@ export function AddMemberModal({ members, onClose }: AddMemberModalProps) {
 
   const isFirstMember = members.length === 0;
 
-  function updateLink(index: number, patch: Partial<MemberLink>) {
-    setLinks((prev) =>
-      prev.map((link, i) => (i === index ? { ...link, ...patch } : link)),
-    );
-  }
+  const relatedMember = members.find((m) => m._id === relatedMemberId);
+  const linkPreview = useMemo(
+    () =>
+      describeLinkPreviewWithMembers(
+        role,
+        relatedMember,
+        members,
+        relationships as Parameters<typeof describeLinkPreviewWithMembers>[3],
+      ),
+    [role, relatedMember, members, relationships],
+  );
 
-  function addLink() {
-    setLinks((prev) => [...prev, emptyLink()]);
-  }
-
-  function removeLink(index: number) {
-    setLinks((prev) =>
-      prev.length === 1 ? prev : prev.filter((_, i) => i !== index),
-    );
-  }
+  const selectedOption = SIMPLE_RELATIONSHIP_OPTIONS.find((o) => o.value === role);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -64,10 +63,8 @@ export function AddMemberModal({ members, onClose }: AddMemberModalProps) {
       return;
     }
 
-    const validLinks = links.filter((l) => l.relatedMemberId);
-
-    if (!isFirstMember && validLinks.length === 0) {
-      setError("Add at least one relationship");
+    if (!isFirstMember && !relatedMemberId) {
+      setError("Please select who they're related to");
       return;
     }
 
@@ -94,10 +91,14 @@ export function AddMemberModal({ members, onClose }: AddMemberModalProps) {
         birthday: birthday || undefined,
         email: email.trim() || undefined,
         pictureId,
-        links: validLinks.map((link) => ({
-          relatedMemberId: link.relatedMemberId as Id<"members">,
-          relationship: link.relationship,
-        })),
+        links: relatedMemberId
+          ? [
+              {
+                relatedMemberId: relatedMemberId as Id<"members">,
+                relationship: role,
+              },
+            ]
+          : [],
       });
 
       onClose();
@@ -209,80 +210,54 @@ export function AddMemberModal({ members, onClose }: AddMemberModalProps) {
           </div>
 
           {!isFirstMember && (
-            <div className="mb-4">
-              <div className="mb-3 flex items-center justify-between">
-                <label className="text-[10px] uppercase tracking-[0.25em] text-muted">
-                  Relationships<span className="text-gold"> *</span>
-                </label>
-                <button
-                  type="button"
-                  onClick={addLink}
-                  className="flex items-center gap-1 text-[10px] uppercase tracking-[0.15em] text-gold transition-colors hover:text-charcoal"
-                >
-                  <Plus className="h-3 w-3" />
-                  Add connection
-                </button>
-              </div>
+            <div className="mb-4 border border-line bg-cream/30 p-4">
+              <p className="mb-3 text-[10px] uppercase tracking-[0.25em] text-muted">
+                Family connection<span className="text-gold"> *</span>
+              </p>
 
-              <div className="space-y-3">
-                {links.map((link, index) => (
-                  <div
-                    key={index}
-                    className="border border-line bg-cream/40 p-3"
+              <div className="mb-3 grid grid-cols-2 gap-2">
+                {SIMPLE_RELATIONSHIP_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setRole(option.value)}
+                    className={`border px-3 py-2.5 text-left transition-colors ${
+                      role === option.value
+                        ? "border-gold bg-ivory"
+                        : "border-line bg-ivory/50 hover:border-gold/40"
+                    }`}
                   >
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="text-[9px] uppercase tracking-[0.2em] text-muted">
-                        Connection {index + 1}
-                      </span>
-                      {links.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeLink(index)}
-                          className="text-muted transition-colors hover:text-red-500"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
-
-                    <select
-                      value={link.relatedMemberId}
-                      onChange={(e) =>
-                        updateLink(index, { relatedMemberId: e.target.value })
-                      }
-                      className="field-input mb-2"
-                    >
-                      <option value="">Select a family member</option>
-                      {members.map((m) => (
-                        <option key={m._id} value={m._id}>
-                          {m.name}
-                        </option>
-                      ))}
-                    </select>
-
-                    <select
-                      value={link.relationship}
-                      onChange={(e) =>
-                        updateLink(index, {
-                          relationship: e.target.value as RelationshipType,
-                        })
-                      }
-                      className="field-input"
-                    >
-                      {(
-                        Object.entries(RELATIONSHIP_LABELS) as [
-                          RelationshipType,
-                          string,
-                        ][]
-                      ).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                    <span className="block text-[11px] uppercase tracking-[0.12em] text-charcoal">
+                      {option.label}
+                    </span>
+                  </button>
                 ))}
               </div>
+
+              {selectedOption && (
+                <p className="mb-3 text-xs leading-relaxed text-muted">
+                  {selectedOption.description}
+                </p>
+              )}
+
+              <select
+                value={relatedMemberId}
+                onChange={(e) => setRelatedMemberId(e.target.value)}
+                className="field-input"
+              >
+                <option value="">Select a family member</option>
+                {members.map((m) => (
+                  <option key={m._id} value={m._id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+
+              {linkPreview && (
+                <p className="mt-3 border border-gold/30 bg-ivory px-3 py-2 text-[11px] uppercase tracking-[0.12em] text-gold">
+                  {linkPreview}
+                </p>
+              )}
             </div>
           )}
 
