@@ -1,9 +1,18 @@
 "use client";
 
+import { useMutation } from "convex/react";
 import { Id } from "../../convex/_generated/dataModel";
-import { Member, RelationshipType } from "@/lib/types";
-import { Briefcase, Calendar, Mail, User } from "lucide-react";
+import { api } from "../../convex/_generated/api";
+import {
+  Member,
+  RELATIONSHIP_LABELS,
+  Relationship,
+  RelationshipType,
+  relationshipFromPerspective,
+} from "@/lib/types";
+import { Briefcase, Calendar, Mail, Plus, User } from "lucide-react";
 import Image from "next/image";
+import { useState } from "react";
 
 type MemberNodeProps = {
   member: Member & { x: number; y: number };
@@ -67,21 +76,35 @@ export function MemberNode({ member, selected, onSelect }: MemberNodeProps) {
   );
 }
 
+type RelatedEntry = {
+  relatedId: Id<"members">;
+  relatedName: string;
+  type: RelationshipType;
+};
+
 type MemberDetailProps = {
   member: Member | null;
-  relatedName?: string;
-  relationship?: RelationshipType;
+  members: Member[];
+  relationships: RelatedEntry[];
   onClose: () => void;
   onDelete?: (id: Id<"members">) => void;
+  onLinkAdded?: () => void;
 };
 
 export function MemberDetail({
   member,
-  relatedName,
-  relationship,
+  members,
+  relationships,
   onClose,
   onDelete,
+  onLinkAdded,
 }: MemberDetailProps) {
+  const addRelationship = useMutation(api.members.addRelationship);
+  const [showLinkForm, setShowLinkForm] = useState(false);
+  const [relatedMemberId, setRelatedMemberId] = useState("");
+  const [relationship, setRelationship] = useState<RelationshipType>("child");
+  const [linking, setLinking] = useState(false);
+
   if (!member) return null;
 
   const initials = member.name
@@ -90,6 +113,28 @@ export function MemberDetail({
     .join("")
     .slice(0, 2)
     .toUpperCase();
+
+  const otherMembers = members.filter((m) => m._id !== member._id);
+
+  async function handleAddLink(e: React.FormEvent) {
+    e.preventDefault();
+    if (!relatedMemberId) return;
+
+    setLinking(true);
+    try {
+      await addRelationship({
+        memberId: member!._id,
+        relatedMemberId: relatedMemberId as Id<"members">,
+        relationship,
+      });
+      setRelatedMemberId("");
+      setRelationship("child");
+      setShowLinkForm(false);
+      onLinkAdded?.();
+    } finally {
+      setLinking(false);
+    }
+  }
 
   return (
     <aside className="animate-fade-in fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col border-l border-line bg-ivory shadow-2xl md:w-[400px]">
@@ -126,16 +171,97 @@ export function MemberDetail({
           <h3 className="font-serif text-3xl font-light tracking-wide">
             {member.name}
           </h3>
-
-          {relatedName && relationship && (
-            <p className="mt-2 text-[11px] uppercase tracking-[0.2em] text-gold">
-              {relationship === "parent" && `Parent of ${relatedName}`}
-              {relationship === "child" && `Child of ${relatedName}`}
-              {relationship === "spouse" && `Spouse of ${relatedName}`}
-              {relationship === "sibling" && `Sibling of ${relatedName}`}
-            </p>
-          )}
         </div>
+
+        {relationships.length > 0 && (
+          <div className="mt-8">
+            <p className="mb-3 text-[10px] uppercase tracking-[0.25em] text-muted">
+              Relationships
+            </p>
+            <div className="space-y-2">
+              {relationships.map((rel) => (
+                <div
+                  key={`${rel.relatedId}-${rel.type}`}
+                  className="border border-line bg-cream/40 px-4 py-3 text-sm"
+                >
+                  <span className="text-[10px] uppercase tracking-[0.15em] text-gold">
+                    {RELATIONSHIP_LABELS[rel.type]}
+                  </span>
+                  <p className="mt-1 font-serif text-charcoal">
+                    {rel.relatedName}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {otherMembers.length > 0 && (
+          <div className="mt-6">
+            {!showLinkForm ? (
+              <button
+                onClick={() => setShowLinkForm(true)}
+                className="flex w-full items-center justify-center gap-2 border border-line py-3 text-[11px] uppercase tracking-[0.2em] text-charcoal transition-colors hover:border-gold"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Link to another member
+              </button>
+            ) : (
+              <form onSubmit={handleAddLink} className="border border-line p-4">
+                <p className="mb-3 text-[10px] uppercase tracking-[0.2em] text-muted">
+                  New connection
+                </p>
+                <select
+                  value={relatedMemberId}
+                  onChange={(e) => setRelatedMemberId(e.target.value)}
+                  className="field-input mb-2"
+                  required
+                >
+                  <option value="">Select member</option>
+                  {otherMembers.map((m) => (
+                    <option key={m._id} value={m._id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={relationship}
+                  onChange={(e) =>
+                    setRelationship(e.target.value as RelationshipType)
+                  }
+                  className="field-input mb-3"
+                >
+                  {(
+                    Object.entries(RELATIONSHIP_LABELS) as [
+                      RelationshipType,
+                      string,
+                    ][]
+                  ).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    disabled={linking}
+                    className="flex-1 border border-black bg-black py-2 text-[10px] uppercase tracking-[0.15em] text-ivory disabled:opacity-50"
+                  >
+                    {linking ? "Saving..." : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowLinkForm(false)}
+                    className="flex-1 border border-line py-2 text-[10px] uppercase tracking-[0.15em] text-muted"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        )}
 
         <div className="mt-10 space-y-5">
           {member.job && (
@@ -169,6 +295,25 @@ export function MemberDetail({
       )}
     </aside>
   );
+}
+
+export function buildMemberRelationships(
+  memberId: Id<"members">,
+  members: Member[],
+  relationships: Relationship[],
+): RelatedEntry[] {
+  const memberMap = new Map(members.map((m) => [m._id, m]));
+
+  return relationships
+    .filter((r) => r.fromMemberId === memberId || r.toMemberId === memberId)
+    .map((rel) => {
+      const { relatedId, type } = relationshipFromPerspective(memberId, rel);
+      return {
+        relatedId,
+        relatedName: memberMap.get(relatedId)?.name ?? "Unknown",
+        type,
+      };
+    });
 }
 
 function DetailRow({

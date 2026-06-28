@@ -59,8 +59,14 @@ export const create = mutation({
     job: v.optional(v.string()),
     birthday: v.optional(v.string()),
     email: v.optional(v.string()),
-    relatedMemberId: v.optional(v.id("members")),
-    relationship: v.optional(relationshipType),
+    links: v.optional(
+      v.array(
+        v.object({
+          relatedMemberId: v.id("members"),
+          relationship: relationshipType,
+        }),
+      ),
+    ),
   },
   handler: async (ctx, args) => {
     const memberId = await ctx.db.insert("members", {
@@ -71,15 +77,47 @@ export const create = mutation({
       email: args.email,
     });
 
-    if (args.relatedMemberId && args.relationship) {
+    for (const link of args.links ?? []) {
       await ctx.db.insert("relationships", {
         fromMemberId: memberId,
-        toMemberId: args.relatedMemberId,
-        type: args.relationship,
+        toMemberId: link.relatedMemberId,
+        type: link.relationship,
       });
     }
 
     return memberId;
+  },
+});
+
+export const addRelationship = mutation({
+  args: {
+    memberId: v.id("members"),
+    relatedMemberId: v.id("members"),
+    relationship: relationshipType,
+  },
+  handler: async (ctx, { memberId, relatedMemberId, relationship }) => {
+    if (memberId === relatedMemberId) {
+      throw new Error("Cannot link a member to themselves");
+    }
+
+    const existing = await ctx.db
+      .query("relationships")
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("fromMemberId"), memberId),
+          q.eq(q.field("toMemberId"), relatedMemberId),
+          q.eq(q.field("type"), relationship),
+        ),
+      )
+      .first();
+
+    if (existing) return existing._id;
+
+    return await ctx.db.insert("relationships", {
+      fromMemberId: memberId,
+      toMemberId: relatedMemberId,
+      type: relationship,
+    });
   },
 });
 

@@ -2,17 +2,27 @@
 
 import { useMutation } from "convex/react";
 import type { GenericId } from "convex/values";
+import { Plus, Trash2, Upload, X } from "lucide-react";
+import Image from "next/image";
 import { useRef, useState } from "react";
 import { Id } from "../../convex/_generated/dataModel";
 import { api } from "../../convex/_generated/api";
 import { Member, RELATIONSHIP_LABELS, RelationshipType } from "@/lib/types";
-import { Upload, X } from "lucide-react";
-import Image from "next/image";
+
+type MemberLink = {
+  relatedMemberId: string;
+  relationship: RelationshipType;
+};
 
 type AddMemberModalProps = {
   members: Member[];
   onClose: () => void;
 };
+
+const emptyLink = (): MemberLink => ({
+  relatedMemberId: "",
+  relationship: "child",
+});
 
 export function AddMemberModal({ members, onClose }: AddMemberModalProps) {
   const createMember = useMutation(api.members.create);
@@ -23,14 +33,29 @@ export function AddMemberModal({ members, onClose }: AddMemberModalProps) {
   const [job, setJob] = useState("");
   const [birthday, setBirthday] = useState("");
   const [email, setEmail] = useState("");
-  const [relatedMemberId, setRelatedMemberId] = useState<string>("");
-  const [relationship, setRelationship] = useState<RelationshipType>("child");
+  const [links, setLinks] = useState<MemberLink[]>([emptyLink()]);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [pictureFile, setPictureFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isFirstMember = members.length === 0;
+
+  function updateLink(index: number, patch: Partial<MemberLink>) {
+    setLinks((prev) =>
+      prev.map((link, i) => (i === index ? { ...link, ...patch } : link)),
+    );
+  }
+
+  function addLink() {
+    setLinks((prev) => [...prev, emptyLink()]);
+  }
+
+  function removeLink(index: number) {
+    setLinks((prev) =>
+      prev.length === 1 ? prev : prev.filter((_, i) => i !== index),
+    );
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -39,8 +64,10 @@ export function AddMemberModal({ members, onClose }: AddMemberModalProps) {
       return;
     }
 
-    if (!isFirstMember && !relatedMemberId) {
-      setError("Please select a related family member");
+    const validLinks = links.filter((l) => l.relatedMemberId);
+
+    if (!isFirstMember && validLinks.length === 0) {
+      setError("Add at least one relationship");
       return;
     }
 
@@ -67,10 +94,10 @@ export function AddMemberModal({ members, onClose }: AddMemberModalProps) {
         birthday: birthday || undefined,
         email: email.trim() || undefined,
         pictureId,
-        relatedMemberId: relatedMemberId
-          ? (relatedMemberId as Id<"members">)
-          : undefined,
-        relationship: relatedMemberId ? relationship : undefined,
+        links: validLinks.map((link) => ({
+          relatedMemberId: link.relatedMemberId as Id<"members">,
+          relationship: link.relationship,
+        })),
       });
 
       onClose();
@@ -182,43 +209,81 @@ export function AddMemberModal({ members, onClose }: AddMemberModalProps) {
           </div>
 
           {!isFirstMember && (
-            <>
-              <Field label="Related To" required>
-                <select
-                  value={relatedMemberId}
-                  onChange={(e) => setRelatedMemberId(e.target.value)}
-                  className="field-input"
+            <div className="mb-4">
+              <div className="mb-3 flex items-center justify-between">
+                <label className="text-[10px] uppercase tracking-[0.25em] text-muted">
+                  Relationships<span className="text-gold"> *</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={addLink}
+                  className="flex items-center gap-1 text-[10px] uppercase tracking-[0.15em] text-gold transition-colors hover:text-charcoal"
                 >
-                  <option value="">Select a family member</option>
-                  {members.map((m) => (
-                    <option key={m._id} value={m._id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+                  <Plus className="h-3 w-3" />
+                  Add connection
+                </button>
+              </div>
 
-              <Field label="Relationship" required>
-                <select
-                  value={relationship}
-                  onChange={(e) =>
-                    setRelationship(e.target.value as RelationshipType)
-                  }
-                  className="field-input"
-                >
-                  {(
-                    Object.entries(RELATIONSHIP_LABELS) as [
-                      RelationshipType,
-                      string,
-                    ][]
-                  ).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </>
+              <div className="space-y-3">
+                {links.map((link, index) => (
+                  <div
+                    key={index}
+                    className="border border-line bg-cream/40 p-3"
+                  >
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-[9px] uppercase tracking-[0.2em] text-muted">
+                        Connection {index + 1}
+                      </span>
+                      {links.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeLink(index)}
+                          className="text-muted transition-colors hover:text-red-500"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    <select
+                      value={link.relatedMemberId}
+                      onChange={(e) =>
+                        updateLink(index, { relatedMemberId: e.target.value })
+                      }
+                      className="field-input mb-2"
+                    >
+                      <option value="">Select a family member</option>
+                      {members.map((m) => (
+                        <option key={m._id} value={m._id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={link.relationship}
+                      onChange={(e) =>
+                        updateLink(index, {
+                          relationship: e.target.value as RelationshipType,
+                        })
+                      }
+                      className="field-input"
+                    >
+                      {(
+                        Object.entries(RELATIONSHIP_LABELS) as [
+                          RelationshipType,
+                          string,
+                        ][]
+                      ).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           {error && (

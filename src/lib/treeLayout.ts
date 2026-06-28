@@ -1,5 +1,5 @@
 import { Id } from "../../convex/_generated/dataModel";
-import { Member, Relationship, TreeEdge, TreeNode } from "./types";
+import { Member, Relationship, RelationshipType, TreeEdge, TreeNode } from "./types";
 
 const NODE_WIDTH = 180;
 const NODE_HEIGHT = 220;
@@ -13,10 +13,10 @@ function getParents(
   const parents: Id<"members">[] = [];
 
   for (const rel of relationships) {
-    if (rel.type === "parent" && rel.fromMemberId === memberId) {
+    if (rel.type === "child" && rel.fromMemberId === memberId) {
       parents.push(rel.toMemberId);
     }
-    if (rel.type === "child" && rel.toMemberId === memberId) {
+    if (rel.type === "parent" && rel.toMemberId === memberId) {
       parents.push(rel.fromMemberId);
     }
   }
@@ -24,16 +24,43 @@ function getParents(
   return parents;
 }
 
-function getSpouse(
+function getChildren(
   memberId: Id<"members">,
   relationships: Relationship[],
-): Id<"members"> | null {
+): Id<"members">[] {
+  const children: Id<"members">[] = [];
+
+  for (const rel of relationships) {
+    if (rel.type === "parent" && rel.fromMemberId === memberId) {
+      children.push(rel.toMemberId);
+    }
+    if (rel.type === "child" && rel.toMemberId === memberId) {
+      children.push(rel.fromMemberId);
+    }
+  }
+
+  return children;
+}
+
+function getSpouses(
+  memberId: Id<"members">,
+  relationships: Relationship[],
+): Id<"members">[] {
+  const spouses: Id<"members">[] = [];
+
   for (const rel of relationships) {
     if (rel.type !== "spouse") continue;
-    if (rel.fromMemberId === memberId) return rel.toMemberId;
-    if (rel.toMemberId === memberId) return rel.fromMemberId;
+    if (rel.fromMemberId === memberId) spouses.push(rel.toMemberId);
+    if (rel.toMemberId === memberId) spouses.push(rel.fromMemberId);
   }
-  return null;
+
+  return spouses;
+}
+
+function parseBirthday(birthday?: string): number {
+  if (!birthday) return 0;
+  const time = new Date(birthday).getTime();
+  return Number.isNaN(time) ? 0 : time;
 }
 
 function assignGenerations(
@@ -42,43 +69,50 @@ function assignGenerations(
 ): Map<Id<"members">, number> {
   const generations = new Map<Id<"members">, number>();
   const memberIds = members.map((m) => m._id);
+  const memberMap = new Map(members.map((m) => [m._id, m]));
 
-  const roots = memberIds.filter((id) => getParents(id, relationships).length === 0);
-  const queue = (roots.length > 0 ? roots : memberIds).map((id) => ({
-    id,
-    gen: 0,
-  }));
+  const leaves = memberIds.filter(
+    (id) => getChildren(id, relationships).length === 0,
+  );
 
-  const visited = new Set<string>();
+  const startIds =
+    leaves.length > 0
+      ? [...leaves].sort(
+          (a, b) =>
+            parseBirthday(memberMap.get(b)?.birthday) -
+            parseBirthday(memberMap.get(a)?.birthday),
+        )
+      : [...memberIds].sort(
+          (a, b) =>
+            parseBirthday(memberMap.get(b)?.birthday) -
+            parseBirthday(memberMap.get(a)?.birthday),
+        );
+
+  const queue = startIds.map((id) => ({ id, gen: 0 }));
 
   while (queue.length > 0) {
     const { id, gen } = queue.shift()!;
-    if (visited.has(id)) continue;
-    visited.add(id);
+    const existing = generations.get(id);
 
-    const currentGen = generations.get(id);
-    if (currentGen === undefined || gen > currentGen) {
-      generations.set(id, gen);
+    if (existing !== undefined && gen <= existing) continue;
+    generations.set(id, gen);
+
+    for (const parentId of getParents(id, relationships)) {
+      queue.push({ id: parentId, gen: gen + 1 });
     }
 
     for (const rel of relationships) {
-      if (rel.type === "parent" && rel.fromMemberId === id) {
-        queue.push({ id: rel.toMemberId, gen: gen + 1 });
-      }
-      if (rel.type === "child" && rel.toMemberId === id) {
-        queue.push({ id: rel.fromMemberId, gen: gen - 1 });
-      }
       if (rel.type === "spouse") {
         const spouseId =
           rel.fromMemberId === id ? rel.toMemberId : rel.fromMemberId;
-        if (!visited.has(spouseId)) {
+        if (spouseId !== id) {
           queue.push({ id: spouseId, gen });
         }
       }
       if (rel.type === "sibling") {
         const siblingId =
           rel.fromMemberId === id ? rel.toMemberId : rel.fromMemberId;
-        if (!visited.has(siblingId)) {
+        if (siblingId !== id) {
           queue.push({ id: siblingId, gen });
         }
       }
@@ -89,11 +123,6 @@ function assignGenerations(
     if (!generations.has(id)) {
       generations.set(id, 0);
     }
-  }
-
-  const minGen = Math.min(...generations.values());
-  for (const [id, gen] of generations) {
-    generations.set(id, gen - minGen);
   }
 
   return generations;
@@ -108,6 +137,7 @@ export function layoutTree(
   }
 
   const generations = assignGenerations(members, relationships);
+  const memberMap = new Map(members.map((m) => [m._id, m]));
   const byGeneration = new Map<number, Member[]>();
 
   for (const member of members) {
@@ -125,15 +155,19 @@ export function layoutTree(
     (a, b) => a[0] - b[0],
   )) {
     maxGen = Math.max(maxGen, gen);
+
+    const sorted = [...group].sort(
+      (a, b) => parseBirthday(b.birthday) - parseBirthday(a.birthday),
+    );
+
     const ordered: Member[] = [];
-    const remaining = [...group];
+    const remaining = [...sorted];
 
     while (remaining.length > 0) {
       const member = remaining.shift()!;
       ordered.push(member);
 
-      const spouseId = getSpouse(member._id, relationships);
-      if (spouseId) {
+      for (const spouseId of getSpouses(member._id, relationships)) {
         const spouseIdx = remaining.findIndex((m) => m._id === spouseId);
         if (spouseIdx >= 0) {
           ordered.push(remaining.splice(spouseIdx, 1)[0]);
@@ -165,6 +199,7 @@ export function layoutTree(
   });
 
   const edges: TreeEdge[] = relationships.map((rel) => ({
+    id: rel._id,
     from: rel.fromMemberId,
     to: rel.toMemberId,
     type: rel.type,
@@ -188,6 +223,18 @@ export function layoutTree(
     width: maxX - minX,
     height: maxY + 40,
   };
+}
+
+export function getParentChildPair(
+  edge: TreeEdge,
+): { child: Id<"members">; parent: Id<"members"> } | null {
+  if (edge.type === "parent") {
+    return { parent: edge.from, child: edge.to };
+  }
+  if (edge.type === "child") {
+    return { parent: edge.to, child: edge.from };
+  }
+  return null;
 }
 
 export { NODE_WIDTH, NODE_HEIGHT };

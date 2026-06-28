@@ -7,8 +7,10 @@ import { api } from "../../convex/_generated/api";
 import { AddMemberModal } from "@/components/AddMemberModal";
 import { FamilyTree } from "@/components/FamilyTree";
 import { Header } from "@/components/Header";
-import { MemberDetail } from "@/components/MemberNode";
-import { RelationshipType } from "@/lib/types";
+import {
+  buildMemberRelationships,
+  MemberDetail,
+} from "@/components/MemberNode";
 
 export function FamilyTreeApp() {
   const data = useQuery(api.members.list);
@@ -22,26 +24,10 @@ export function FamilyTreeApp() {
 
   const selectedMember = members.find((m) => m._id === selectedId) ?? null;
 
-  const selectedRelation = useMemo(() => {
-    if (!selectedId) return null;
-
-    const rel = relationships.find(
-      (r) => r.fromMemberId === selectedId || r.toMemberId === selectedId,
-    );
-    if (!rel) return null;
-
-    const relatedId =
-      rel.fromMemberId === selectedId ? rel.toMemberId : rel.fromMemberId;
-    const relatedName = members.find((m) => m._id === relatedId)?.name;
-
-    let type: RelationshipType = rel.type;
-    if (rel.toMemberId === selectedId) {
-      if (rel.type === "parent") type = "child";
-      else if (rel.type === "child") type = "parent";
-    }
-
-    return { relatedName, type };
-  }, [selectedId, relationships, members]);
+  const selectedRelationships = useMemo(() => {
+    if (!selectedId) return [];
+    return buildMemberRelationships(selectedId, members, relationships);
+  }, [selectedId, members, relationships]);
 
   if (data === undefined) {
     return (
@@ -71,8 +57,8 @@ export function FamilyTreeApp() {
         {selectedMember && (
           <MemberDetail
             member={selectedMember}
-            relatedName={selectedRelation?.relatedName}
-            relationship={selectedRelation?.type}
+            members={members}
+            relationships={selectedRelationships}
             onClose={() => setSelectedId(null)}
             onDelete={async (id) => {
               await removeMember({ id });

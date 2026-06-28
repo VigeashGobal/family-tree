@@ -2,8 +2,12 @@
 
 import { useMemo } from "react";
 import { Id } from "../../convex/_generated/dataModel";
-import { Member, Relationship } from "@/lib/types";
-import { layoutTree, NODE_HEIGHT } from "@/lib/treeLayout";
+import { EDGE_LABELS, Member, Relationship } from "@/lib/types";
+import {
+  getParentChildPair,
+  layoutTree,
+  NODE_HEIGHT,
+} from "@/lib/treeLayout";
 import { MemberNode } from "./MemberNode";
 
 type FamilyTreeProps = {
@@ -12,6 +16,119 @@ type FamilyTreeProps = {
   selectedId: Id<"members"> | null;
   onSelect: (id: Id<"members">) => void;
 };
+
+type TreeNode = Member & { x: number; y: number };
+
+function EdgeLabel({
+  x,
+  y,
+  label,
+  variant,
+}: {
+  x: number;
+  y: number;
+  label: string;
+  variant: "horizontal" | "vertical";
+}) {
+  return (
+    <g>
+      <rect
+        x={x - 28}
+        y={y - 9}
+        width={56}
+        height={18}
+        fill="#faf8f5"
+        stroke="#e8e2d9"
+        strokeWidth={0.5}
+      />
+      <text
+        x={x}
+        y={y + (variant === "horizontal" ? 4 : 3)}
+        textAnchor="middle"
+        className="fill-charcoal"
+        style={{
+          fontSize: "9px",
+          fontFamily: "var(--font-sans), sans-serif",
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+        }}
+      >
+        {label}
+      </text>
+    </g>
+  );
+}
+
+function renderEdge(
+  edge: { id: string; from: Id<"members">; to: Id<"members">; type: string },
+  from: TreeNode,
+  to: TreeNode,
+) {
+  const isSpouse = edge.type === "spouse";
+  const isSibling = edge.type === "sibling";
+  const label = EDGE_LABELS[edge.type as keyof typeof EDGE_LABELS];
+
+  if (isSpouse || isSibling) {
+    const sameRow = Math.abs(from.y - to.y) < 20;
+    const y = sameRow
+      ? from.y + NODE_HEIGHT / 2
+      : (from.y + to.y + NODE_HEIGHT) / 2;
+
+    return (
+      <g key={edge.id}>
+        <line
+          x1={from.x}
+          y1={y}
+          x2={to.x}
+          y2={y}
+          stroke={isSpouse ? "#b8976a" : "#d4bc94"}
+          strokeWidth={isSpouse ? 1.5 : 1}
+          strokeDasharray={isSibling ? "4 4" : undefined}
+        />
+        <EdgeLabel
+          x={(from.x + to.x) / 2}
+          y={y - 12}
+          label={label}
+          variant="horizontal"
+        />
+      </g>
+    );
+  }
+
+  const pair = getParentChildPair({
+    id: edge.id,
+    from: edge.from,
+    to: edge.to,
+    type: edge.type as "parent" | "child",
+  });
+  if (!pair) return null;
+
+  const childNode = from._id === pair.child ? from : to;
+  const parentNode = from._id === pair.parent ? from : to;
+
+  const cx = childNode.x;
+  const cy = childNode.y + NODE_HEIGHT;
+  const px = parentNode.x;
+  const py = parentNode.y;
+  const midY = (cy + py) / 2;
+
+  return (
+    <g key={edge.id}>
+      <path
+        d={`M ${cx} ${cy} L ${cx} ${midY} L ${px} ${midY} L ${px} ${py}`}
+        fill="none"
+        stroke="#b8976a"
+        strokeWidth={1}
+      />
+      <EdgeLabel
+        x={(cx + px) / 2}
+        y={midY}
+        label={label}
+        variant="horizontal"
+      />
+    </g>
+  );
+}
 
 export function FamilyTree({
   members,
@@ -60,57 +177,11 @@ export function FamilyTree({
           height={height}
           style={{ overflow: "visible" }}
         >
-          {edges.map((edge, i) => {
+          {edges.map((edge) => {
             const from = nodeMap.get(edge.from);
             const to = nodeMap.get(edge.to);
             if (!from || !to) return null;
-
-            const isSpouse = edge.type === "spouse";
-            const isSibling = edge.type === "sibling";
-
-            const x1 = from.x;
-            const y1 = from.y + NODE_HEIGHT / 2;
-            const x2 = to.x;
-            const y2 = to.y + NODE_HEIGHT / 2;
-
-            if (isSpouse || isSibling) {
-              const midY = (y1 + y2) / 2;
-              return (
-                <line
-                  key={i}
-                  x1={x1}
-                  y1={midY}
-                  x2={x2}
-                  y2={midY}
-                  stroke={isSpouse ? "#b8976a" : "#e8e2d9"}
-                  strokeWidth={isSpouse ? 1.5 : 1}
-                  strokeDasharray={isSibling ? "4 4" : undefined}
-                />
-              );
-            }
-
-            const isParentChild =
-              edge.type === "parent" || edge.type === "child";
-
-            if (!isParentChild) return null;
-
-            const parent = edge.type === "parent" ? from : to;
-            const child = edge.type === "parent" ? to : from;
-            const px = parent.x;
-            const py = parent.y + NODE_HEIGHT;
-            const cx = child.x;
-            const cy = child.y;
-            const midY = (py + cy) / 2;
-
-            return (
-              <path
-                key={i}
-                d={`M ${px} ${py} L ${px} ${midY} L ${cx} ${midY} L ${cx} ${cy}`}
-                fill="none"
-                stroke="#d4bc94"
-                strokeWidth={1}
-              />
-            );
+            return renderEdge(edge, from, to);
           })}
         </svg>
 
