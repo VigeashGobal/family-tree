@@ -10,9 +10,10 @@ import {
   SimpleRelationshipRole,
 } from "@/lib/relationships";
 import { Member, Relationship, RELATIONSHIP_LABELS } from "@/lib/types";
-import { Briefcase, Calendar, Mail, Plus, User } from "lucide-react";
+import { Briefcase, Calendar, Mail, Pencil, Plus, Upload, User } from "lucide-react";
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { GenericId } from "convex/values";
 
 type MemberNodeProps = {
   member: Member & { x: number; y: number };
@@ -102,21 +103,53 @@ export function MemberDetail({
   onLinkAdded,
 }: MemberDetailProps) {
   const addRelationship = useMutation(api.members.addRelationship);
+  const updateMember = useMutation(api.members.update);
+  const generateUploadUrl = useMutation(api.members.generateUploadUrl);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [name, setName] = useState("");
+  const [job, setJob] = useState("");
+  const [birthday, setBirthday] = useState("");
+  const [email, setEmail] = useState("");
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [pictureFile, setPictureFile] = useState<File | null>(null);
+  const [removePicture, setRemovePicture] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
   const [showLinkForm, setShowLinkForm] = useState(false);
   const [relatedMemberId, setRelatedMemberId] = useState("");
   const [role, setRole] = useState<SimpleRelationshipRole>("child");
   const [linking, setLinking] = useState(false);
 
+  useEffect(() => {
+    if (!member) return;
+    setName(profile.name);
+    setJob(profile.job ?? "");
+    setBirthday(profile.birthday ?? "");
+    setEmail(profile.email ?? "");
+    setPreviewUrl(null);
+    setPictureFile(null);
+    setRemovePicture(false);
+    setIsEditing(false);
+    setEditError(null);
+    setShowLinkForm(false);
+  }, [member?._id, member?.name, member?.job, member?.birthday, member?.email]);
+
   if (!member) return null;
 
-  const initials = member.name
+  const profile = member;
+  const memberId = profile._id;
+
+  const initials = profile.name
     .split(" ")
     .map((n) => n[0])
     .join("")
     .slice(0, 2)
     .toUpperCase();
 
-  const otherMembers = members.filter((m) => m._id !== member._id);
+  const otherMembers = members.filter((m) => m._id !== profile._id);
   const relatedMember = members.find((m) => m._id === relatedMemberId);
   const linkPreview = describeLinkPreviewWithMembers(
     role,
@@ -132,7 +165,7 @@ export function MemberDetail({
     setLinking(true);
     try {
       await addRelationship({
-        memberId: member!._id,
+        memberId,
         relatedMemberId: relatedMemberId as Id<"members">,
         relationship: role,
       });
@@ -145,27 +178,211 @@ export function MemberDetail({
     }
   }
 
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPictureFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
+    setRemovePicture(false);
+  }
+
+  function cancelEdit() {
+    setName(profile.name);
+    setJob(profile.job ?? "");
+    setBirthday(profile.birthday ?? "");
+    setEmail(profile.email ?? "");
+    setPreviewUrl(null);
+    setPictureFile(null);
+    setRemovePicture(false);
+    setEditError(null);
+    setIsEditing(false);
+  }
+
+  async function handleSaveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) {
+      setEditError("Name is required");
+      return;
+    }
+
+    setSaving(true);
+    setEditError(null);
+
+    try {
+      let pictureId: GenericId<"_storage"> | undefined;
+
+      if (pictureFile) {
+        const uploadUrl = await generateUploadUrl();
+        const result = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": pictureFile.type },
+          body: pictureFile,
+        });
+        const { storageId } = await result.json();
+        pictureId = storageId;
+      }
+
+      await updateMember({
+        id: memberId,
+        name: name.trim(),
+        job: job.trim() || undefined,
+        birthday: birthday || undefined,
+        email: email.trim() || undefined,
+        pictureId,
+        removePicture: removePicture && !pictureFile,
+      });
+
+      setIsEditing(false);
+      setPreviewUrl(null);
+      setPictureFile(null);
+      setRemovePicture(false);
+    } catch {
+      setEditError("Could not save changes. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const displayPictureUrl =
+    previewUrl ?? (removePicture ? null : profile.pictureUrl);
+
   return (
     <aside className="animate-fade-in fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col border-l border-line bg-ivory shadow-2xl md:w-[400px]">
       <div className="flex items-center justify-between border-b border-line px-6 py-5">
         <h2 className="font-serif text-xl tracking-[0.15em] uppercase">
-          Profile
+          {isEditing ? "Edit Profile" : "Profile"}
         </h2>
-        <button
-          onClick={onClose}
-          className="text-[11px] uppercase tracking-[0.2em] text-muted transition-colors hover:text-black"
-        >
-          Close
-        </button>
+        <div className="flex items-center gap-4">
+          {!isEditing && (
+            <button
+              onClick={() => setIsEditing(true)}
+              className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.2em] text-muted transition-colors hover:text-black"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Edit
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="text-[11px] uppercase tracking-[0.2em] text-muted transition-colors hover:text-black"
+          >
+            Close
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-8">
+        {isEditing ? (
+          <form onSubmit={handleSaveEdit}>
+            <div className="mb-6 flex flex-col items-center">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="group relative flex h-32 w-32 items-center justify-center overflow-hidden rounded-full border-2 border-gold/30 bg-cream transition-colors hover:border-gold"
+              >
+                {displayPictureUrl ? (
+                  <Image
+                    src={displayPictureUrl}
+                    alt={name}
+                    fill
+                    className="object-cover"
+                    unoptimized
+                  />
+                ) : (
+                  <div className="flex flex-col items-center text-muted">
+                    <Upload className="mb-1 h-6 w-6" />
+                    <span className="text-[9px] uppercase tracking-wider">
+                      Photo
+                    </span>
+                  </div>
+                )}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+              {(profile.pictureUrl || previewUrl) && !removePicture && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRemovePicture(true);
+                    setPreviewUrl(null);
+                    setPictureFile(null);
+                  }}
+                  className="mt-2 text-[10px] uppercase tracking-[0.15em] text-muted transition-colors hover:text-red-500"
+                >
+                  Remove photo
+                </button>
+              )}
+            </div>
+
+            <EditField label="Full Name" required>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="field-input"
+              />
+            </EditField>
+
+            <EditField label="Occupation">
+              <input
+                value={job}
+                onChange={(e) => setJob(e.target.value)}
+                className="field-input"
+              />
+            </EditField>
+
+            <div className="grid grid-cols-2 gap-4">
+              <EditField label="Birthday">
+                <input
+                  type="date"
+                  value={birthday}
+                  onChange={(e) => setBirthday(e.target.value)}
+                  className="field-input"
+                />
+              </EditField>
+              <EditField label="Email">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="field-input"
+                />
+              </EditField>
+            </div>
+
+            {editError && (
+              <p className="mt-4 text-center text-sm text-red-600">{editError}</p>
+            )}
+
+            <div className="mt-6 flex gap-2">
+              <button
+                type="submit"
+                disabled={saving}
+                className="flex-1 border border-black bg-black py-3 text-[11px] uppercase tracking-[0.2em] text-ivory disabled:opacity-50"
+              >
+                {saving ? "Saving..." : "Save changes"}
+              </button>
+              <button
+                type="button"
+                onClick={cancelEdit}
+                className="flex-1 border border-line py-3 text-[11px] uppercase tracking-[0.2em] text-muted"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : (
+          <>
         <div className="flex flex-col items-center">
           <div className="relative mb-6 h-32 w-32 overflow-hidden rounded-full border-2 border-gold/30">
-            {member.pictureUrl ? (
+            {profile.pictureUrl ? (
               <Image
-                src={member.pictureUrl}
-                alt={member.name}
+                src={profile.pictureUrl}
+                alt={profile.name}
                 fill
                 className="object-cover"
                 unoptimized
@@ -178,7 +395,7 @@ export function MemberDetail({
           </div>
 
           <h3 className="font-serif text-3xl font-light tracking-wide">
-            {member.name}
+            {profile.name}
           </h3>
         </div>
 
@@ -276,29 +493,31 @@ export function MemberDetail({
         )}
 
         <div className="mt-10 space-y-5">
-          {member.job && (
-            <DetailRow icon={Briefcase} label="Occupation" value={member.job} />
+          {profile.job && (
+            <DetailRow icon={Briefcase} label="Occupation" value={profile.job} />
           )}
-          {member.birthday && (
+          {profile.birthday && (
             <DetailRow
               icon={Calendar}
               label="Birthday"
-              value={member.birthday}
+              value={profile.birthday}
             />
           )}
-          {member.email && (
-            <DetailRow icon={Mail} label="Email" value={member.email} />
+          {profile.email && (
+            <DetailRow icon={Mail} label="Email" value={profile.email} />
           )}
-          {!member.job && !member.birthday && !member.email && (
+          {!profile.job && !profile.birthday && !profile.email && (
             <DetailRow icon={User} label="Details" value="No additional details" />
           )}
         </div>
+          </>
+        )}
       </div>
 
       {onDelete && (
         <div className="border-t border-line p-6">
           <button
-            onClick={() => onDelete(member._id)}
+            onClick={() => onDelete?.(memberId)}
             className="w-full border border-line py-3 text-[11px] uppercase tracking-[0.2em] text-muted transition-colors hover:border-red-300 hover:text-red-600"
           >
             Remove from tree
@@ -315,6 +534,26 @@ export function buildMemberRelationships(
   relationships: Relationship[],
 ): RelatedEntry[] {
   return buildDisplayRelationships(memberId, members, relationships);
+}
+
+function EditField({
+  label,
+  required,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mb-4">
+      <label className="mb-1.5 block text-[10px] uppercase tracking-[0.25em] text-muted">
+        {label}
+        {required && <span className="text-gold"> *</span>}
+      </label>
+      {children}
+    </div>
+  );
 }
 
 function DetailRow({

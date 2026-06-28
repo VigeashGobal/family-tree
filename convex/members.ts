@@ -97,6 +97,44 @@ export const create = mutation({
   },
 });
 
+export const update = mutation({
+  args: {
+    id: v.id("members"),
+    name: v.string(),
+    job: v.optional(v.string()),
+    birthday: v.optional(v.string()),
+    email: v.optional(v.string()),
+    pictureId: v.optional(v.id("_storage")),
+    removePicture: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const member = await ctx.db.get(args.id);
+    if (!member) {
+      throw new Error("Member not found");
+    }
+
+    if (args.removePicture && member.pictureId) {
+      await ctx.storage.delete(member.pictureId);
+    } else if (
+      args.pictureId &&
+      member.pictureId &&
+      member.pictureId !== args.pictureId
+    ) {
+      await ctx.storage.delete(member.pictureId);
+    }
+
+    await ctx.db.patch(args.id, {
+      name: args.name.trim(),
+      job: args.job?.trim() || undefined,
+      birthday: args.birthday || undefined,
+      email: args.email?.trim() || undefined,
+      pictureId: args.removePicture
+        ? undefined
+        : args.pictureId ?? member.pictureId,
+    });
+  },
+});
+
 export const addRelationship = mutation({
   args: {
     memberId: v.id("members"),
